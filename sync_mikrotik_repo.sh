@@ -14,7 +14,7 @@ versions7=("7")
 #needed architecture's
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
 
-#path for wget
+#path to wget
 WGET="/bin/wget"
 
 ##################################### Main ###################################################
@@ -22,6 +22,7 @@ WGET="/bin/wget"
 #always sync packages
 force=$1
 
+#wget options
 wget_opts="-q -nc"
 
 if [ -n "${force}" ]; then
@@ -42,15 +43,28 @@ if [ ${ret} -ne 0 ]; then
     fi
 
 old_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}" | head -1 | awk '{ print $1 }')
-new_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $1 }')
+old_timestamp=$(cat "${TARGET_DIR}/LATEST.${firmware_version}" | head -1 | awk '{ print $2 }')
+old_release_date=$(date -d @${old_timestamp})
 
-if [ "x${force}" == "x" -a "x${new_version}" == "x${old_version}" ]; then
+new_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $1 }')
+new_timestamp=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $2 }')
+new_release_date=$(date -d @${new_timestamp})
+
+version_changed=1
+if [ "x${new_version}" == "x${old_version}" -a "x${old_timestamp}" == "x${new_timestamp}" ]; then
+    version_changed=
+    fi
+
+if [ "x${force}" == "x" -a "x${version_changed}" == "x" ]; then
     echo "Version don't changed. Next."
     rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
     continue
     fi
 
-echo "Found new version ${new_version}. Old: ${old_version}. Try download packages..."
+echo "Found version: ${new_version} from ${new_release_date}"
+echo "Old version: ${old_version} from ${old_release_date}"
+echo "Try download packages..."
+
 if [ ! -e "${TARGET_DIR}/${new_version}" ]; then
     mkdir -p "${TARGET_DIR}/${new_version}"
     fi
@@ -126,15 +140,28 @@ if [ ${ret} -ne 0 ]; then
     fi
 
 old_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}" | head -1 | awk '{ print $1 }')
-new_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $1 }')
+old_timestamp=$(cat "${TARGET_DIR}/LATEST.${firmware_version}" | head -1 | awk '{ print $2 }')
+old_release_date=$(date -d @${old_timestamp})
 
-if [ "x${force}" == "x" -a "x${new_version}" == "x${old_version}" ]; then
+new_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $1 }')
+new_timestamp=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $2 }')
+new_release_date=$(date -d @${new_timestamp})
+
+version_changed=1
+if [ "x${new_version}" == "x${old_version}" -a "x${old_timestamp}" == "x${new_timestamp}" ]; then
+    version_changed=
+    fi
+
+if [ "x${force}" == "x" -a "x${version_changed}" == "x" ]; then
     echo "Version don't changed. Next."
     rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
     continue
     fi
 
-echo "Found new version ${new_version}. Old: ${old_version}. Try download packages..."
+echo "Found version: ${new_version} from ${new_release_date}"
+echo "Old version: ${old_version} from ${old_release_date}"
+echo "Try download packages..."
+
 if [ ! -e "${TARGET_DIR}/${new_version}" ]; then
     mkdir -p "${TARGET_DIR}/${new_version}"
     fi
