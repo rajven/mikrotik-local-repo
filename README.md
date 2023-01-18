@@ -27,7 +27,7 @@ firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
 
 ### Share TARGET_DIR by you web-server
 
-Need share dir without "/routeros". That is, there should be a directory in the root directory "/routeros"!!!
+Need share dir without "/routeros". That is, the /routeros directory should be at the root of the site!
 
 ### Change at our mikrotik device dns names for download packages to you web-server
 
