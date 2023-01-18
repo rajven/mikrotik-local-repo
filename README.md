@@ -2,7 +2,7 @@
 
 Get packages from mikrotik repo to you local repo
 
-+++ Configure architecture & versions
+### Configure architecture & versions
 
 Change in script:
 
@@ -25,9 +25,9 @@ versions7=("7")
 
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
 
-+++ Share TARGET_DIR by you web-server
+### Share TARGET_DIR by you web-server
 
-+++ Change at our mikrotik device dns names for download packages to you web-server
+### Change at our mikrotik device dns names for download packages to you web-server
 
 /ip dns static add address=192.168.0.1 name=download.mikrotik.com
 
