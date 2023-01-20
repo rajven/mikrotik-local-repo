@@ -172,7 +172,7 @@ if [ "x${new_version}" == "x${old_version}" -a "x${old_timestamp}" == "x${new_ti
 if [ "x${force}" == "x" -a "x${version_changed}" == "x" ]; then
     echo "Version don't changed. Next."
     [ -e "${TARGET_DIR}/NEWEST7.${firmware_version}.new" ] && rm -f "${TARGET_DIR}/NEWEST7.${firmware_version}.new"
-    break
+    continue
     fi
 
 echo "Found version: ${new_version} from ${new_release_date}"
