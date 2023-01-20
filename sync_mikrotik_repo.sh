@@ -1,5 +1,9 @@
 #!/bin/bash
 
+#wget path & opts
+wget_opts="-q -nc"
+WGET="/bin/wget"
+
 #path for you repo
 TARGET_DIR="/mnt/mirror/routeros"
 
@@ -8,22 +12,16 @@ TARGET_DIR="/mnt/mirror/routeros"
 #stable=>"6" lts=>"6fix"
 versions6=("6" "6fix")
 
-#ROS7
-versions7=("7")
+# ROS 7
+versions7=("stable")
 
 #needed architecture's
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
-
-#path to wget
-WGET="/bin/wget"
 
 ##################################### Main ###################################################
 
 #always sync packages
 force=$1
-
-#wget options
-wget_opts="-q -nc"
 
 if [ -n "${force}" ]; then
     echo "Force flag for download packages found!"
@@ -38,7 +36,8 @@ echo "Get latest release"
 ${WGET} ${wget_opts}  "http://upgrade.mikrotik.com/routeros/LATEST.${firmware_version}" -O "${TARGET_DIR}/LATEST.${firmware_version}.new"
 ret=$?
 if [ ${ret} -ne 0 ]; then
-    echo "Error get release version for ${firmware_version}"
+    [ -e "${TARGET_DIR}/LATEST.${firmware_version}.new"] && rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
+    echo "Error get release 6 version ${firmware_version}"
     exit 100
     fi
 
@@ -76,6 +75,7 @@ if [ ${ret} -ne 0 ]; then
     echo "Error get changelog for ${new_version}. Skip release."
     continue
     fi
+
 download_error=
 for file_arch in "${firmware_arch[@]}"; do
     #packages
@@ -122,29 +122,46 @@ ${WGET} ${wget_opts} "http://upgrade.mikrotik.com/routeros/${new_version}/netins
 ${WGET} ${wget_opts} "https://mt.lv/winbox" -O "${TARGET_DIR}/${new_version}/winbox.exe"
 ${WGET} ${wget_opts} "https://mt.lv/winbox64" -O "${TARGET_DIR}/${new_version}/winbox64.exe"
 
-rm -f "${TARGET_DIR}/LATEST.${firmware_version}"
+[ -e "${TARGET_DIR}/LATEST.${firmware_version}" ] && rm -f "${TARGET_DIR}/LATEST.${firmware_version}"
 mv "${TARGET_DIR}/LATEST.${firmware_version}.new" "${TARGET_DIR}/LATEST.${firmware_version}"
+
+echo "ROS 6 version ${new_version} downloaded."
 done
 
 ###################################### ROS 7 ##################################################
 
 echo "Check ROS 7 releases"
-for firmware_version in "${versions7[@]}"; do
-echo "Analyze version ${firmware_version}"
-echo "Get latest release"
-${WGET} ${wget_opts}  "http://upgrade.mikrotik.com/routeros/LATEST.${firmware_version}" -O "${TARGET_DIR}/LATEST.${firmware_version}.new"
+
+#get latest release for ROS7
+${WGET} ${wget_opts}  "http://upgrade.mikrotik.com/routeros/LATEST.7" -O "${TARGET_DIR}/LATEST.7.new"
 ret=$?
 if [ ${ret} -ne 0 ]; then
-    echo "Error get release version for ${firmware_version}"
+    echo "Error get release 7 version"
+    [ -e "${TARGET_DIR}/LATEST.7.new" ] && rm -f "${TARGET_DIR}/LATEST.7.new"
+    exit 100
+    fi
+[ -e "${TARGET_DIR}/LATEST.7" ] && rm -f "${TARGET_DIR}/LATEST.7"
+mv "${TARGET_DIR}/LATEST.7.new" "${TARGET_DIR}/LATEST.7"
+
+for firmware_version in "${versions7[@]}"; do
+
+echo "Analyze version ${firmware_version}"
+echo "Get latest release"
+
+${WGET} ${wget_opts}  "http://upgrade.mikrotik.com/routeros/NEWEST7.${firmware_version}" -O "${TARGET_DIR}/NEWEST7.${firmware_version}.new"
+ret=$?
+if [ ${ret} -ne 0 ]; then
+    echo "Error get newest release 7 version ${firmware_version}"
+    [ -e "${TARGET_DIR}/NEWEST7.${firmware_version}.new" ] && rm -f "${TARGET_DIR}/NEWEST7.${firmware_version}.new"
     exit 100
     fi
 
-old_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}" | head -1 | awk '{ print $1 }')
-old_timestamp=$(cat "${TARGET_DIR}/LATEST.${firmware_version}" | head -1 | awk '{ print $2 }')
+old_version=$(cat "${TARGET_DIR}/NEWEST7.${firmware_version}" | head -1 | awk '{ print $1 }')
+old_timestamp=$(cat "${TARGET_DIR}/NEWEST7.${firmware_version}" | head -1 | awk '{ print $2 }')
 old_release_date=$(date -d @${old_timestamp})
 
-new_version=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $1 }')
-new_timestamp=$(cat "${TARGET_DIR}/LATEST.${firmware_version}.new" | head -1 | awk '{ print $2 }')
+new_version=$(cat "${TARGET_DIR}/NEWEST7.${firmware_version}.new" | head -1 | awk '{ print $1 }')
+new_timestamp=$(cat "${TARGET_DIR}/NEWEST7.${firmware_version}.new" | head -1 | awk '{ print $2 }')
 new_release_date=$(date -d @${new_timestamp})
 
 version_changed=1
@@ -154,8 +171,8 @@ if [ "x${new_version}" == "x${old_version}" -a "x${old_timestamp}" == "x${new_ti
 
 if [ "x${force}" == "x" -a "x${version_changed}" == "x" ]; then
     echo "Version don't changed. Next."
-    rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
-    continue
+    [ -e "${TARGET_DIR}/NEWEST7.${firmware_version}.new" ] && rm -f "${TARGET_DIR}/NEWEST7.${firmware_version}.new"
+    break
     fi
 
 echo "Found version: ${new_version} from ${new_release_date}"
@@ -198,9 +215,9 @@ for file_arch in "${firmware_arch[@]}"; do
     done
 
 if [ -n "${download_err}" ]; then
-    echo "Found errors by download packages. Skip release"
-    rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
+    echo "Found errors by download packages for ${new_version} ${firmware_version}. Skip release"
     download_err=
+    [ -e "${TARGET_DIR}/NEWEST7.${firmware_version}.new" ] && rm -f "${TARGET_DIR}/NEWEST7.${firmware_version}.new"
     continue
     fi
 
@@ -219,10 +236,10 @@ ${WGET} ${wget_opts} "http://upgrade.mikrotik.com/routeros/${new_version}/netins
 ${WGET} ${wget_opts} "https://mt.lv/winbox" -O "${TARGET_DIR}/${new_version}/winbox.exe"
 ${WGET} ${wget_opts} "https://mt.lv/winbox64" -O "${TARGET_DIR}/${new_version}/winbox64.exe"
 
-rm -f "${TARGET_DIR}/LATEST.${firmware_version}"
-mv "${TARGET_DIR}/LATEST.${firmware_version}.new" "${TARGET_DIR}/LATEST.${firmware_version}"
-echo "Version ${new_version} downloaded."
+[ -e "${TARGET_DIR}/NEWEST7.${firmware_version}" ] && rm -f "${TARGET_DIR}/NEWEST7.${firmware_version}"
+mv "${TARGET_DIR}/NEWEST7.${firmware_version}.new" "${TARGET_DIR}/NEWEST7.${firmware_version}"
 
+echo "ROS 7 version ${new_version} downloaded successfully."
 done
 
 exit
