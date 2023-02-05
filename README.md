@@ -32,9 +32,11 @@ Need share dir without "/routeros". That is, the /routeros directory should be a
 ### Create symlink's in target directory
 
 touch LATEST.6fix
+
 touch LATEST.6
 
 ln -s LATEST.6fix NEWEST6.long-term
+
 ln -s LATEST.6 NEWEST6.stable
 
 ### Change at our mikrotik device dns names for download packages to you web-server
