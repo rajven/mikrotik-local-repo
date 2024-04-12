@@ -1,0 +1,5 @@
+What's new (Fri Apr 12 12:31:53 2024):
+
+*) added scripts for downloading the specified release, for versions up to ROS 7.12.1 (download_ROS7_release.sh) and after 7.12.1 (download_ROS7a_release.sh);
+*) Upgrade support has been made from ROS6 to ROS7
+*) Repository support has been made for ROS version 7.12.1 and higher
