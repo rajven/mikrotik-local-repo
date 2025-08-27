@@ -1,3 +1,7 @@
+What's new (Wed Aug 27 18:18:45 2025):
+*) winbox download has been changed. It is now placed in a separate winbox directory.
+*) Optimized the script. Added a log
+
 What's new (Fri Apr 12 12:31:53 2024):
 
 *) added scripts for downloading the specified release, for versions up to ROS 7.12.1 (download_ROS7_release.sh) and after 7.12.1 (download_ROS7a_release.sh);

@@ -4,7 +4,7 @@ Get packages from mikrotik repo to you local repo
 
 ### Configure architecture & versions
 
-Change in script:
+Change in config.sh script:
 
 #You local repo path 
 TARGET_DIR="/mnt/mirror/routeros"
