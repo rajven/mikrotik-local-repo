@@ -84,6 +84,16 @@ download_specific_ros7_version() {
             download_err=1
             break
         fi
+
+        local user_agent_info=$(get_ros7_user_agent "$version")
+        if [ "${file_arch}" != "x86" ] && [ "${user_agent_info}" == 'after' ]; then
+            #download wireless after 7.12
+	    ${WGET} $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/wireless-${version}-${file_arch}.npk"
+	    if ! check_error $? "Failed to download wireless for ${file_arch}"; then
+        	download_err=1
+        	break
+		fi
+	    fi
     done
 
     if [[ ${download_err} -ne 0 ]]; then
@@ -94,6 +104,5 @@ download_specific_ros7_version() {
     # Additional files
     download_additional_files "${version}" "$user_agent"
 
-    log_success "ROS 7 version ${version} downloaded successfully."
     return 0
 }

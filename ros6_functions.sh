@@ -103,6 +103,5 @@ download_specific_ros6_version() {
     # Download additional files
     download_additional_files "${version}"
 
-    log_success "ROS 6 version ${version} downloaded successfully."
     return 0
 }

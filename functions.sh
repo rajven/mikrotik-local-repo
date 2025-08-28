@@ -53,6 +53,30 @@ download_additional_files() {
     done
 }
 
+# Функция для преобразования версии в числовой формат
+version_to_number() {
+    local version=$1
+    local major=$(echo $version | cut -d. -f1)
+    local minor=$(echo $version | cut -d. -f2)
+    local patch=$(echo $version | cut -d. -f3)
+    echo $((major * 1000000 + minor * 1000 + patch))
+}
+
+# Функция для определения типа версии и нужного user agent
+get_ros7_user_agent() {
+    local version=$1
+    local version_num=$(version_to_number "$version")
+    local threshold_num=$(version_to_number "7.12.1")
+    
+    if [ $version_num -ge $threshold_num ]; then
+        # Версия равна или выше 7.12.1
+        echo "after"
+    else
+        # Версия ниже 7.12.1
+        echo "before"
+    fi
+}
+
 # Функция загрузки Winbox
 download_winbox() {
     log "Downloading Winbox"
