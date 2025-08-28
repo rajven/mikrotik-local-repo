@@ -1,19 +1,28 @@
 #!/bin/bash
 
-# Импорт конфигурации
-source "$(dirname "$0")/config.sh"
-
 # Функции логирования
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    if [ "${LOG_OFF}" = "1" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1".
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    fi
 }
 
 log_error() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" | tee -a "$LOG_FILE"
+    if [ "${LOG_OFF}" = "1" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" >&2
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" | tee -a "$LOG_FILE" >&2
+    fi
 }
 
 log_success() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1" | tee -a "$LOG_FILE"
+    if [ "${LOG_OFF}" = "1" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1" | tee -a "$LOG_FILE"
+    fi
 }
 
 # Функция проверки ошибок

@@ -71,11 +71,9 @@ download_specific_version() {
     
     case $version_type in
         "ros6")
-            log "Downloading specific ROS 6 version: $version"
             download_specific_ros6_version "$version"
             ;;
         "ros7")
-            log "Downloading specific ROS 7 version: $version"
             local user_agent_info=$(get_ros7_user_agent "$version")
             if [ "${user_agent_info}" == 'after' ]; then
         	download_specific_ros7 "RouterOS 7.12.1" "$version"
