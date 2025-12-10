@@ -77,38 +77,76 @@ get_ros7_user_agent() {
     fi
 }
 
-# Функция загрузки Winbox
+# Функция загрузки Winbox с сохранением по версиям
 download_winbox() {
-    log "Downloading Winbox"
-
+    log "Downloading Winbox files from mikrotik.com"
+    
     mkdir -p "$WINBOX_DIR"
-
-    LINKS=$($WGET $WGET_OPTS https://mikrotik.com/download -O - | grep -oP 'https?://[^"]*winbox[^"]*\.(exe|zip)' || echo "")
+    
+    # Получаем HTML-контент страницы
+    PAGE_CONTENT=$(curl -s "https://mikrotik.com/download/winbox")
+    
+    # Ищем все ссылки на .zip, .dmg и .sha256 файлы
+    LINKS=$(echo "$PAGE_CONTENT" | grep -oP 'href="https?://[^"]*\.(zip|dmg|sha256)"' | sed 's/href="//;s/"//')
+    
+    # Альтернативный вариант: ищем все ссылки, содержащие download.mikrotik.com и winbox
     if [ -z "$LINKS" ]; then
-        log_error "No winbox links found"
+        LINKS=$(echo "$PAGE_CONTENT" | grep -oP 'https?://download\.mikrotik\.com[^"]*winbox[^"]*\.(zip|dmg|sha256)"' | sed 's/"//')
+    fi
+    
+    if [ -z "$LINKS" ]; then
+        log_error "No winbox links found (.zip, .dmg or .sha256)"
         return 1
     fi
-
+    
+    # Удаляем дубликаты ссылок
+    LINKS=$(echo "$LINKS" | sort -u)
+    
+    log "Found $(echo "$LINKS" | wc -l) unique links"
+    
     for LINK in $LINKS; do
-        if [[ "$LINK" == ${WINBOX_BASE_URL}/* ]]; then
-            RELATIVE_PATH="${WINBOX_DIR}/${LINK#${WINBOX_BASE_URL}/}"
-            mkdir -p "$(dirname "$RELATIVE_PATH")"
-
-            if [ -f "$RELATIVE_PATH" ]; then
-                log "File already exists: $RELATIVE_PATH"
-                continue
-            fi
-
-            log "Downloading: $LINK"
-            if curl -s -L -o "$RELATIVE_PATH" "$LINK"; then
-                FILE_SIZE=$(du -h "$RELATIVE_PATH" | cut -f1)
-                log_success "Downloaded: $RELATIVE_PATH ($FILE_SIZE)"
+        # Извлекаем версию из URL (часть после /winbox/)
+        if [[ "$LINK" =~ /routeros/winbox/([^/]+)/ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            # Создаем путь для сохранения с учетом версии
+            VERSION_DIR="$WINBOX_DIR/$VERSION"
+        else
+            VERSION_DIR="$WINBOX_DIR"
+        fi
+        
+        # Извлекаем имя файла из URL
+        FILENAME=$(basename "$LINK")
+        
+        # Полный путь для сохранения
+        FILE_PATH="$VERSION_DIR/$FILENAME"
+        
+        # Создаем каталог для версии
+        mkdir -p "$VERSION_DIR"
+        
+        # Проверяем, существует ли файл уже
+        if [ -f "$FILE_PATH" ]; then
+            log "File already exists: $FILE_PATH"
+            continue
+        fi
+        
+        log "Downloading: $LINK"
+        
+        # Скачиваем файл с обработкой ошибок
+        if curl -s -L -o "$FILE_PATH" "$LINK"; then
+            # Проверяем, что файл не пустой
+            if [ -s "$FILE_PATH" ]; then
+                FILE_SIZE=$(du -h "$FILE_PATH" | cut -f1)
+                log_success "Downloaded: $FILE_PATH ($FILE_SIZE)"
             else
-                log_error "Failed to download: $LINK"
-                rm -f "$RELATIVE_PATH"
+                log_error "Downloaded empty file: $LINK"
+                rm -f "$FILE_PATH"
             fi
         else
-            log "Skipping external link: $LINK"
+            log_error "Failed to download: $LINK"
+            rm -f "$FILE_PATH"
         fi
+        
+        # Небольшая пауза между загрузками
+        sleep 0.5
     done
 }
