@@ -2,7 +2,8 @@
 
 # Функция загрузки ROS 7
 download_ros7() {
-    local user_agent=$1
+    local ros_version=$1
+    local user_agent="RouterOS $1"
     local version_prefix=$2
     local description=$3
     local force=$4
@@ -11,9 +12,13 @@ download_ros7() {
     log "Checking ${description}"
 
     for firmware_version in "${versions7[@]}"; do
+	#skip check long-term before 7.12.1
+        if [[ -z ${version_prefix} && "${firmware_version}" == "long-term" ]]; then
+	    continue
+	    fi
         log "Analyzing version ${firmware_version}"
 
-        $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/NEWEST${version_prefix}7.${firmware_version}" -O "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
+        $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/NEWEST${version_prefix}7.${firmware_version}?version=${ros_version}" -O "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
         if ! check_error $? "Failed to get NEWEST${version_prefix}7.${firmware_version}"; then
             continue
         fi
@@ -40,7 +45,7 @@ download_ros7() {
         log "New version found: ${new_version}"
 
         # Использование единой функции загрузки
-        if download_specific_ros7_version "${user_agent}" "${new_version}"; then
+        if download_specific_ros7_version "${ros_version}" "${new_version}"; then
             mv "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new" "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}"
             log_success "ROS 7 version ${new_version} downloaded successfully."
         else
@@ -52,7 +57,8 @@ download_ros7() {
 
 # Функция загрузки конкретной версии ROS 7
 download_specific_ros7_version() {
-    local user_agent=$1
+    local ros_version=$1
+    local user_agent="RouterOS $1"
     local version=$2
     local file_arch ros_filename download_err=0
 
@@ -61,8 +67,14 @@ download_specific_ros7_version() {
     mkdir -p "${TARGET_DIR}/${version}"
     cd "${TARGET_DIR}/${version}" || return 1
 
+    [ -e "CHANGELOG" ] && rm -f CHANGELOG
     $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/CHANGELOG"
     check_error $? "Failed to download CHANGELOG" || return 1
+
+    # packages.csv
+    [ -e "packages.csv" ] && rm -f packages.csv
+    $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/packages.csv"
+    check_error $? "Failed to download packages.csv"
 
     for file_arch in "${firmware_arch[@]}"; do
         # Packages
@@ -84,6 +96,7 @@ download_specific_ros7_version() {
             download_err=1
             break
         fi
+
 
         local user_agent_info=$(get_ros7_user_agent "$version")
         if [ "${file_arch}" != "x86" ] && [ "${user_agent_info}" == 'after' ]; then

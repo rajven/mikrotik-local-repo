@@ -39,7 +39,7 @@ TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Версии ROS
 versions6=("6" "6fix")
-versions7=("stable")
+versions7=("stable" "long-term")
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
 
 # Дополнительные файлы для загрузки

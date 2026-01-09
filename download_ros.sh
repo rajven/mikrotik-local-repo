@@ -52,9 +52,9 @@ download_specific_version() {
         "ros7")
             local user_agent_info=$(get_ros7_user_agent "$version")
             if [ "${user_agent_info}" == 'after' ]; then
-        	download_specific_ros7 "RouterOS 7.12.1" "$version"
+        	download_specific_ros7_version "7.12.1" "$version"
         	else
-        	download_specific_ros7 "RouterOS 7.10" "$version"
+        	download_specific_ros7_version "7.10" "$version"
 		fi
             ;;
     esac

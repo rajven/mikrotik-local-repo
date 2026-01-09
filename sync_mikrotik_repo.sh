@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # Импорт конфигурации и функций
-SCRIPT_DIR="$(dirname "$0")"
+#SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="/usr/local/bin"
+
 source "${SCRIPT_DIR}/config.sh"
 source "${SCRIPT_DIR}/functions.sh"
 source "${SCRIPT_DIR}/ros6_functions.sh"
@@ -25,8 +27,8 @@ fi
 download_ros6 "$force"
 
 # Загрузка ROS 7 версий
-download_ros7 "RouterOS 7.10" "" "ROS 7 before 7.12.1" "$force"
-download_ros7 "RouterOS 7.12.1" "a" "ROS 7 after 7.12.1" "$force"
+download_ros7 "7.10" "" "ROS 7 before 7.12.1" "$force"
+download_ros7 "7.12.1" "a" "ROS 7 after 7.12.1" "$force"
 
 # Загрузка Winbox
 download_winbox
