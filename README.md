@@ -15,11 +15,7 @@ TARGET_DIR="/mnt/mirror/routeros"
 
 versions6=("6" "6fix")
 
-#7 - stable
-
-#7fix - LTS (not available now)
-
-versions7=("7")
+versions7=("stable" "long-term")
 
 #select needed architecture
 
