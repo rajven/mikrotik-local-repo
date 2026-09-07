@@ -12,10 +12,10 @@ download_ros7() {
     log "Checking ${description}"
 
     for firmware_version in "${versions7[@]}"; do
-	#skip check long-term before 7.12.1
+        #skip check long-term before 7.12.1
         if [[ -z ${version_prefix} && "${firmware_version}" == "long-term" ]]; then
-	    continue
-	    fi
+            continue
+        fi
         log "Analyzing version ${firmware_version}"
 
         $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/NEWEST${version_prefix}7.${firmware_version}?version=${ros_version}" -O "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
@@ -84,6 +84,14 @@ download_specific_ros7_version() {
             break
         fi
 
+        # Распаковка архива all_packages с автоматической перезаписью совпадающих файлов
+        log "Extracting all_packages-${file_arch}-${version}.zip"
+        unzip -o -q "all_packages-${file_arch}-${version}.zip"
+        if ! check_error $? "Failed to extract all_packages-${file_arch}-${version}.zip"; then
+            download_err=1
+            break
+        fi
+
         # RouterOS - определяем имя файла
         if [[ "${file_arch}" = "x86" ]]; then
             ros_filename="routeros-${version}.npk"
@@ -97,16 +105,15 @@ download_specific_ros7_version() {
             break
         fi
 
-
         local user_agent_info=$(get_ros7_user_agent "$version")
         if [ "${file_arch}" != "x86" ] && [ "${user_agent_info}" == 'after' ]; then
             #download wireless after 7.12
-	    ${WGET} $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/wireless-${version}-${file_arch}.npk"
-	    if ! check_error $? "Failed to download wireless for ${file_arch}"; then
-        	download_err=1
-        	break
-		fi
-	    fi
+            ${WGET} $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/wireless-${version}-${file_arch}.npk"
+            if ! check_error $? "Failed to download wireless for ${file_arch}"; then
+                download_err=1
+                break
+            fi
+        fi
     done
 
     if [[ ${download_err} -ne 0 ]]; then

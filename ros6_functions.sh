@@ -12,11 +12,11 @@ download_ros6() {
     [ -e "${TARGET_DIR}/NEWEST6.upgrade.new" ] && rm -f "${TARGET_DIR}/NEWEST6.upgrade.new"
     $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/NEWEST6.upgrade?version=6.49.13" -O "${TARGET_DIR}/NEWEST6.upgrade.new"
     if ! check_error $? "Failed to download NEWEST6.upgrade"; then
-	rm -f "${TARGET_DIR}/NEWEST6.upgrade.new"
-	else
-	[ -e "${TARGET_DIR}/NEWEST6.upgrade" ] && rm "${TARGET_DIR}/NEWEST6.upgrade"
-	mv "${TARGET_DIR}/NEWEST6.upgrade.new" "${TARGET_DIR}/NEWEST6.upgrade"
-	fi
+        rm -f "${TARGET_DIR}/NEWEST6.upgrade.new"
+    else
+        [ -e "${TARGET_DIR}/NEWEST6.upgrade" ] && rm -f "${TARGET_DIR}/NEWEST6.upgrade"
+        mv "${TARGET_DIR}/NEWEST6.upgrade.new" "${TARGET_DIR}/NEWEST6.upgrade"
+    fi
 
     for firmware_version in "${versions6[@]}"; do
         log "Analyzing version ${firmware_version}"
@@ -83,6 +83,14 @@ download_specific_ros6_version() {
         # Packages
         $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/${version}/all_packages-${file_arch}-${version}.zip"
         if ! check_error $? "Failed to download all_packages-${file_arch}-${version}.zip"; then
+            download_err=1
+            break
+        fi
+
+        # Распаковка архива all_packages с автоматической перезаписью совпадающих файлов
+        log "Extracting all_packages-${file_arch}-${version}.zip"
+        unzip -o -q "all_packages-${file_arch}-${version}.zip"
+        if ! check_error $? "Failed to extract all_packages-${file_arch}-${version}.zip"; then
             download_err=1
             break
         fi
