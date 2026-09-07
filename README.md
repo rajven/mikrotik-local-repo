@@ -136,20 +136,6 @@ server {
     </Directory>
 </VirtualHost>
 ```
-
-### Создание символических ссылок
-
-В корневой директории зеркала создайте симлинки для корректной работы устройств:
-
-```bash
-cd /mnt/mirror/routeros
-
-touch LATEST.6fix
-touch LATEST.6
-ln -s LATEST.6fix NEWEST6.long-term
-ln -s LATEST.6 NEWEST6.stable
-```
-
 ## 🔧 Настройка устройств MikroTik
 
 На роутерах MikroTik подмените DNS-имена официальных репозиториев на адрес вашего локального сервера:

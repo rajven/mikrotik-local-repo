@@ -6,6 +6,13 @@ download_ros6() {
     local old_version old_timestamp old_release_date
     local new_version new_timestamp new_release_date version_changed
 
+    cd "${TARGET_DIR}" || return 1
+    touch "LATEST.6fix" "LATEST.6"
+    ln -sf "LATEST.6fix" "NEWEST6.long-term"
+    ln -sf "LATEST.6fix" "NEWESTa6.long-term"
+    ln -sf "LATEST.6" "NEWEST6.stable"
+    ln -sf "LATEST.6" "NEWESTa6.stable"
+
     log "Checking ROS 6 releases"
 
     # Get upgrade version to ROS 7
@@ -63,12 +70,20 @@ download_ros6() {
             rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
         fi
     done
+
 }
 
 # Функция загрузки конкретной версии ROS 6
 download_specific_ros6_version() {
     local version=$1
     local file_arch ros_filename download_err=0
+
+    cd "${TARGET_DIR}" || return 1
+    touch "LATEST.6fix" "LATEST.6"
+    ln -sf "LATEST.6fix" "NEWEST6.long-term"
+    ln -sf "LATEST.6fix" "NEWESTa6.long-term"
+    ln -sf "LATEST.6" "NEWEST6.stable"
+    ln -sf "LATEST.6" "NEWESTa6.stable"
 
     log "Downloading ROS 6 version: $version"
 
@@ -116,6 +131,7 @@ download_specific_ros6_version() {
 
     # Download additional files
     download_additional_files "${version}"
+
 
     return 0
 }
