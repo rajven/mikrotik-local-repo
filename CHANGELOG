@@ -1,3 +1,7 @@
+What's new (Thu Sep 10 02:11:56 PM MSK 2026):
+*) The unpacking of the package all_packages*.zip has been added.
+*) Proxying of the version request for upgrading from ROS6 to ROS7 has been added.
+
 What's new (Wed Aug 27 18:18:45 2025):
 *) winbox download has been changed. It is now placed in a separate winbox directory.
 *) Optimized the script. Added a log

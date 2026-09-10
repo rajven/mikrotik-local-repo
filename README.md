@@ -44,16 +44,29 @@ mikrotik-local-repo/
 ## 🚀 Установка
 
 ```bash
+
+# Установка
+apt install git php-fpm php-curl nginx wget curl -y
+
 # Клонируем репозиторий
 git clone https://github.com/ваш-аккаунт/mikrotik-local-repo.git
 cd mikrotik-local-repo
 
 # Копируем скрипты в рабочую директорию (по умолчанию /usr/local/bin)
-sudo cp sync_mikrotik_repo.sh config.sh functions.sh ros6_functions.sh ros7_functions.sh /usr/local/bin/
-sudo chmod +x /usr/local/bin/sync_mikrotik_repo.sh
+cp sync_mikrotik_repo.sh config.sh functions.sh ros6_functions.sh ros7_functions.sh /usr/local/bin/
+chmod +x /usr/local/bin/sync_mikrotik_repo.sh
 
 # Задаём права на исполнение
 chmod +x *.sh
+
+# В каталоге для зеркала создаём каталог php:
+
+mkdir -p /путь_к_зеркалу/routeros/php/
+
+# Устанавливаем скрипт получения версий для апгрейда с ROS6 на ROS7
+
+cp routeros/php/*.php /путь_к_зеркалу/routeros/php/
+
 ```
 
 > ⚠️ В скрипте `sync_mikrotik_repo.sh` переменная `SCRIPT_DIR` по умолчанию указывает на `/usr/local/bin`. Если размещаете скрипты в другом месте — измените её вручную.
@@ -76,6 +89,9 @@ versions7=("stable" "long-term")
 
 # Необходимые архитектуры
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
+
+В конфиг сайта nginx, добавьте перехват запросов NEWEST6.upgrade|NEWESTa6.upgrade из nginx/routeros./conf
+
 ```
 
 ## 🏃 Использование
@@ -121,20 +137,26 @@ server {
     location / {
         autoindex on;
     }
+
+    #miroktik upgrade script
+    location ~ ^/routeros/php/ {  deny all;  }
+
+    location ~ ^/routeros/(NEWEST6\.upgrade|NEWESTa6\.upgrade)$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME /mnt/mirror/routeros/php/upgrade6.php;
+        fastcgi_param QUERY_STRING    $query_string;
+        fastcgi_param REQUEST_URI     $request_uri;
+        # Отключаем chunked на исходящем ответе
+        chunked_transfer_encoding off;
+        # Буферизуем ответ PHP целиком, чтобы nginx мог посчитать Content-Length,
+        # если PHP его не задал
+        fastcgi_buffering on;
+        # Не давать nginx добавлять/менять кодировки
+        gzip off;
+        proxy_set_header Accept-Encoding "";
+    }
 }
-```
-
-Пример конфигурации **Apache**:
-
-```apache
-<VirtualHost *:80>
-    ServerName download.mikrotik.com
-    DocumentRoot /mnt/mirror
-    <Directory /mnt/mirror>
-        Options Indexes FollowSymLinks
-        Require all granted
-    </Directory>
-</VirtualHost>
 ```
 ## 🔧 Настройка устройств MikroTik
 
@@ -158,15 +180,15 @@ server {
 
 ```
 ┌──────────────────────┐         ┌─────────────────────┐         ┌──────────────────┐
-│  upgrade.mikrotik.com│ ──────► │ sync_mikrotik_repo  │ ──────► │  Локальный сервер │
-│  download.mikrotik.com│        │  (wget/curl)        │         │  /mnt/mirror     │
+│  upgrade.mikrotik.com│ ──────► │ sync_mikrotik_repo  │ ──────► │ Локальный сервер │
+│ download.mikrotik.com│         │  (wget/curl)        │         │  /mnt/mirror     │
 └──────────────────────┘         └─────────────────────┘         └────────┬─────────┘
                                                                           │
                                                                    DNS override
                                                                           │
                                                                  ┌────────▼─────────┐
-                                                                 │  Устройства       │
-                                                                 │  MikroTik         │
+                                                                 │  Устройства      │
+                                                                 │  MikroTik        │
                                                                  └──────────────────┘
 ```
 

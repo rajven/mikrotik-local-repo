@@ -15,16 +15,6 @@ download_ros6() {
 
     log "Checking ROS 6 releases"
 
-    # Get upgrade version to ROS 7
-    [ -e "${TARGET_DIR}/NEWEST6.upgrade.new" ] && rm -f "${TARGET_DIR}/NEWEST6.upgrade.new"
-    $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/NEWEST6.upgrade?version=6.49.13" -O "${TARGET_DIR}/NEWEST6.upgrade.new"
-    if ! check_error $? "Failed to download NEWEST6.upgrade"; then
-        rm -f "${TARGET_DIR}/NEWEST6.upgrade.new"
-    else
-        [ -e "${TARGET_DIR}/NEWEST6.upgrade" ] && rm -f "${TARGET_DIR}/NEWEST6.upgrade"
-        mv "${TARGET_DIR}/NEWEST6.upgrade.new" "${TARGET_DIR}/NEWEST6.upgrade"
-    fi
-
     for firmware_version in "${versions6[@]}"; do
         log "Analyzing version ${firmware_version}"
         
@@ -77,13 +67,6 @@ download_ros6() {
 download_specific_ros6_version() {
     local version=$1
     local file_arch ros_filename download_err=0
-
-    cd "${TARGET_DIR}" || return 1
-    touch "LATEST.6fix" "LATEST.6"
-    ln -sf "LATEST.6fix" "NEWEST6.long-term"
-    ln -sf "LATEST.6fix" "NEWESTa6.long-term"
-    ln -sf "LATEST.6" "NEWEST6.stable"
-    ln -sf "LATEST.6" "NEWESTa6.stable"
 
     log "Downloading ROS 6 version: $version"
 
