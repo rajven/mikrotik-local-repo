@@ -9,9 +9,17 @@
  *   https://upgrade.mikrotik.com/routeros/<файл>?<query>
  *
  * Если upstream ответил корректно — возвращаем его ответ как есть.
- * Если запрос не удался — отдаём заранее заданный fallback:
- *   NEWEST6.upgrade  → "7.12.1 1700221125"
- *   NEWESTa6.upgrade → "7.23.5 1788499966"
+ * Если запрос не удался — отдаём fallback:
+ *   NEWEST6.stable      => содержимое локального файла LATEST.6
+ *   NEWESTa6.stable     => содержимое локального файла LATEST.6
+ *   NEWEST6.long-term   => содержимое локального файла LATEST.6fix
+ *   NEWESTa6.long-term  => содержимое локального файла LATEST.6fix
+ *   NEWEST6.upgrade     => "7.12.1 1700221125"
+ *   NEWESTa6.upgrade    => "7.23.5 1788499966"
+ *
+ * Если локальный файл для stable/long-term недоступен или пуст —
+ * используется захардкоженное значение "6.49.21 1788435939".
+ *
  *   - всегда отдаём Content-Length;
  *   - принудительно HTTP/1.0 + Connection: close (RouterOS так надёжнее);
  *   - никакого chunked, никаких неявных переводов строк.
@@ -21,10 +29,67 @@ const UPSTREAM_BASE   = 'https://upgrade.mikrotik.com/routeros/';
 const CONNECT_TIMEOUT = 5;
 const TOTAL_TIMEOUT   = 10;
 
+/**
+ * Файлы-источники локального fallback для stable/long-term.
+ * Путь относительный — рядом со скриптом.
+ */
+const LOCAL_STABLE_FILE    = __DIR__ . '/LATEST.6';
+const LOCAL_LONGTERM_FILE  = __DIR__ . '/LATEST.6fix';
+
 $FALLBACKS = [
-    'NEWEST6.upgrade'  => "7.12.1 1700221125\n",
-    'NEWESTa6.upgrade' => "7.23.5 1788499966\n",
+    'NEWEST6.stable'     => "6.49.21 1788435939\n",
+    'NEWESTa6.stable'    => "6.49.21 1788435939\n",
+    'NEWEST6.long-term'  => "6.49.21 1788435939\n",
+    'NEWESTa6.long-term' => "6.49.21 1788435939\n",
+    'NEWEST6.upgrade'    => "7.12.1 1700221125\n",
+    'NEWESTa6.upgrade'   => "7.23.5 1788499966\n",
 ];
+
+/**
+ * Возвращает содержимое локального файла-fallback или null,
+ * если файл недоступен/пуст/нечитаем.
+ */
+function readLocalFallback(string $path): ?string
+{
+    if (!is_file($path) || !is_readable($path)) {
+        return null;
+    }
+    $data = @file_get_contents($path);
+    if ($data === false) {
+        return null;
+    }
+    $data = trim($data, "\r\n \t");
+    if ($data === '') {
+        return null;
+    }
+    return $data . "\n";
+}
+
+/**
+ * Подбирает fallback-содержимое для запрошенного файла.
+ */
+function resolveFallback(string $file, array $defaults): string
+{
+    switch ($file) {
+        case 'NEWEST6.stable':
+        case 'NEWESTa6.stable':
+            $local = readLocalFallback(LOCAL_STABLE_FILE);
+            if ($local !== null) {
+                return $local;
+            }
+            break;
+
+        case 'NEWEST6.long-term':
+        case 'NEWESTa6.long-term':
+            $local = readLocalFallback(LOCAL_LONGTERM_FILE);
+            if ($local !== null) {
+                return $local;
+            }
+            break;
+    }
+
+    return $defaults[$file];
+}
 
 // ---------- какой файл просят ----------
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
@@ -33,7 +98,7 @@ $file = basename($path);
 if (!isset($FALLBACKS[$file])) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
-    header('Content-Length: 21');
+    header('Content-Length: 17');
     header('Connection: close');
     echo "Unknown resource\n";
     exit;
@@ -79,7 +144,7 @@ if ($isValid) {
         '[mt-upgrade-proxy] upstream fail: file=%s url=%s http=%s curl_err=%s',
         $file, $url, $httpCode, $curlErr ?: '-'
     ));
-    $payload = $FALLBACKS[$file];
+    $payload = resolveFallback($file, $FALLBACKS);
 }
 
 // ---------- заголовки, критичные для RouterOS ----------
@@ -96,3 +161,4 @@ header('Cache-Control: no-store');
 while (ob_get_level() > 0) { ob_end_clean(); }
 
 echo $payload;
+

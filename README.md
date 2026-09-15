@@ -12,7 +12,7 @@
 
 - 🔄 Синхронизация **RouterOS 6** (stable, LTS/fix) и **RouterOS 7** (stable, long-term)
 - 🏗️ Поддержка всех актуальных архитектур: `arm`, `arm64`, `mipsbe`, `mmips`, `ppc`, `smips`, `tile`, `x86`
-- 📥 Загрузка **Winbox** (все версии: `.zip`, `.dmg`, `.sha256`)
+- 📥 Загрузка **Winbox** (все версии: `.zip`, `.dmg` )
 - 📄 Скачивание `CHANGELOG`, `packages.csv` и дополнительных файлов
 - ⏩ Пропуск неизменённых версий (повторная загрузка только при изменении)
 - 🛠️ Режим принудительной загрузки (`--force`)
@@ -31,22 +31,21 @@ mikrotik-local-repo/
 └── README.md
 ```
 
-## 📋 Требования
-
-| Компонент | Назначение |
-|-----------|------------|
-| `bash` ≥ 4.0 | Интерпретатор скриптов |
-| `wget` | Загрузка пакетов |
-| `curl` | Загрузка Winbox |
-| `grep` с поддержкой `-P` (PCRE) | Парсинг ссылок Winbox |
-| Веб-сервер (`nginx`, `apache`, `lighttpd`) | Раздача зеркала клиентам |
-
 ## 🚀 Установка
 
 ```bash
 
 # Установка
-apt install git php-fpm php-curl nginx wget curl -y
+apt install git php php-curl wget curl -y
+
+apt install apache
+
+a2enmod rewrite
+a2enmod headers
+
+OR
+
+apt install nginx php-fpm
 
 # Клонируем репозиторий
 git clone https://github.com/ваш-аккаунт/mikrotik-local-repo.git
@@ -59,13 +58,9 @@ chmod +x /usr/local/bin/sync_mikrotik_repo.sh
 # Задаём права на исполнение
 chmod +x *.sh
 
-# В каталоге для зеркала создаём каталог php:
-
-mkdir -p /путь_к_зеркалу/routeros/php/
-
 # Устанавливаем скрипт получения версий для апгрейда с ROS6 на ROS7
 
-cp routeros/php/*.php /путь_к_зеркалу/routeros/php/
+cp html/ros6-upgrade.php /путь_к_зеркалу/
 
 ```
 
@@ -89,8 +84,6 @@ versions7=("stable" "long-term")
 
 # Необходимые архитектуры
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
-
-В конфиг сайта nginx, добавьте перехват запросов NEWEST6.upgrade|NEWESTa6.upgrade из nginx/routeros./conf
 
 ```
 
@@ -139,12 +132,12 @@ server {
     }
 
     #miroktik upgrade script
-    location ~ ^/routeros/php/ {  deny all;  }
+    location ~ ^/ros6-upgrade.php {  deny all;  }
 
-    location ~ ^/routeros/(NEWEST6\.upgrade|NEWESTa6\.upgrade)$ {
+    location ~ ^/routeros/(NEWEST6\.stable|NEWESTa6\.stable|NEWEST6\.long-term|NEWESTa6\.long-term|NEWEST6\.upgrade|NEWESTa6\.upgrade)$ {
         include fastcgi_params;
         fastcgi_pass unix:/run/php/php-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME /mnt/mirror/routeros/php/upgrade6.php;
+        fastcgi_param SCRIPT_FILENAME /mnt/mirror/ros6-upgrade.php;
         fastcgi_param QUERY_STRING    $query_string;
         fastcgi_param REQUEST_URI     $request_uri;
         # Отключаем chunked на исходящем ответе
@@ -156,8 +149,45 @@ server {
         gzip off;
         proxy_set_header Accept-Encoding "";
     }
+
 }
+
 ```
+
+
+Пример конфигурации **Apache**:
+
+```apache
+
+<VirtualHost *:80>
+    DocumentRoot /var/www/html
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+    RewriteEngine On
+
+    # Запрещаем прямой доступ к upgrade.php,
+    # но разрешаем внутренний rewrite.
+    RewriteCond %{THE_REQUEST} \s/+ros6-upgrade\.php(?:[?\s]) [NC]
+    RewriteRule ^/ros6-upgrade\.php$ - [F,L]
+
+    # RouterOS 6 update URLs -> PHP backend
+    RewriteRule ^/routeros/(NEWEST6\.stable|NEWESTa6\.stable|NEWEST6\.long-term|NEWESTa6\.long-term|NEWEST6\.upgrade|NEWESTa6\.upgrade)$ /ros6-upgrade.php [L]
+
+    # Отключаем gzip для этих URL
+    <IfModule mod_deflate.c>
+        SetEnvIf Request_URI "^/routeros/(NEWEST6|NEWESTa6)\.(stable|long-term|upgrade)" no-gzip dont-vary
+    </IfModule>
+
+    # Убираем Accept-Encoding у входящего запроса
+    <IfModule mod_headers.c>
+        SetEnvIf Request_URI "^/routeros/(NEWEST6|NEWESTa6)\.(stable|long-term|upgrade)" NO_ACCEPT_ENCODING
+        RequestHeader unset Accept-Encoding env=NO_ACCEPT_ENCODING
+    </IfModule>
+
+</VirtualHost>
+```
+
 ## 🔧 Настройка устройств MikroTik
 
 На роутерах MikroTik подмените DNS-имена официальных репозиториев на адрес вашего локального сервера:
@@ -215,7 +245,6 @@ LOG_OFF=1
 | Пакеты не скачиваются | Проверьте доступность `upgrade.mikrotik.com` с сервера |
 | Устройства не видят обновления | Убедитесь, что DNS-записи настроены корректно и веб-сервер отдаёт `/routeros` в корне |
 | Ошибка загрузки Winbox | Проверьте наличие `curl` и доступность `mikrotik.com/download/winbox` |
-| `grep -P` не работает | Установите `grep` с поддержкой PCRE или используйте `gnu grep` |
 
 ## 📄 Лицензия
 

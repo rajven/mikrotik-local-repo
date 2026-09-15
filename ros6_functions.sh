@@ -8,10 +8,6 @@ download_ros6() {
 
     cd "${TARGET_DIR}" || return 1
     touch "LATEST.6fix" "LATEST.6"
-    ln -sf "LATEST.6fix" "NEWEST6.long-term"
-    ln -sf "LATEST.6fix" "NEWESTa6.long-term"
-    ln -sf "LATEST.6" "NEWEST6.stable"
-    ln -sf "LATEST.6" "NEWESTa6.stable"
 
     log "Checking ROS 6 releases"
 
