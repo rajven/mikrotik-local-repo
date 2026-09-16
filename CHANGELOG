@@ -1,6 +1,7 @@
 What's new (Wed Sep 16 11:34:56 AM MSK 2026):
 *) Translate to EN
 *) Proxying of the version request for updating ROS7 has been added.
+*) Added URL_SCHEMA="http" for package update requests. Winbox is always updated via https.
 
 What's new (Thu Sep 10 02:11:56 PM MSK 2026):
 *) The unpacking of the package all_packages*.zip has been added.

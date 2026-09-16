@@ -5,6 +5,7 @@ TARGET_DIR="/mnt/md0/mirror/routeros"
 WGET="/bin/wget"
 LOG_DIR="/var/log/mirror"
 LOG_OFF=0
+URL_SCHEMA="http"
 
 [[ ! -f "${WGET}" ]] && WGET=$(command -v wget)
 if [[ ! -f "${WGET}" ]]; then
@@ -58,3 +59,8 @@ additional_files=(
 # Настройки Winbox
 WINBOX_DIR="${TARGET_DIR}/winbox"
 WINBOX_BASE_URL="https://download.mikrotik.com/routeros/winbox"
+
+case "${URL_SCHEMA:-}" in
+    http|https) ;;
+    *)          URL_SCHEMA="http" ;;
+esac

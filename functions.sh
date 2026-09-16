@@ -44,10 +44,10 @@ download_additional_files() {
     for file in "${additional_files[@]}"; do
         file=$(echo ${file} | sed "s/VERSION/${version}/")
         if [ -n "$user_agent" ]; then
-            $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/${file}" || \
+            $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/${file}" || \
             log "Warning: Failed to download ${file}"
         else
-            $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/${version}/${file}" || \
+            $WGET $WGET_OPTS "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/${file}" || \
             log "Warning: Failed to download ${file}"
         fi
     done

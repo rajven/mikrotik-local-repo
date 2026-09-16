@@ -16,7 +16,7 @@ download_ros6() {
         
         rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
         
-        $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/LATEST.${firmware_version}" -O "${TARGET_DIR}/LATEST.${firmware_version}.new"
+        $WGET $WGET_OPTS "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/LATEST.${firmware_version}" -O "${TARGET_DIR}/LATEST.${firmware_version}.new"
         if ! check_error $? "Failed to get LATEST.${firmware_version}"; then
             rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
             continue
@@ -70,12 +70,12 @@ download_specific_ros6_version() {
     cd "${TARGET_DIR}/${version}" || return 1
 
     # Download changelog first
-    $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/${version}/CHANGELOG"
+    $WGET $WGET_OPTS "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/CHANGELOG"
     check_error $? "Failed to download CHANGELOG for ${version}" || return 1
 
     for file_arch in "${firmware_arch[@]}"; do
         # Packages
-        $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/${version}/all_packages-${file_arch}-${version}.zip"
+        $WGET $WGET_OPTS "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/all_packages-${file_arch}-${version}.zip"
         if ! check_error $? "Failed to download all_packages-${file_arch}-${version}.zip"; then
             download_err=1
             break
@@ -96,7 +96,7 @@ download_specific_ros6_version() {
             ros_filename="routeros-${file_arch}-${version}.npk"
         fi
 
-        $WGET $WGET_OPTS "http://upgrade.mikrotik.com/routeros/${version}/${ros_filename}"
+        $WGET $WGET_OPTS "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/${ros_filename}"
         if ! check_error $? "Failed to download routeros for ${file_arch}"; then
             download_err=1
             break

@@ -18,7 +18,7 @@ download_ros7() {
         fi
         log "Analyzing version ${firmware_version}"
 
-        $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/NEWEST${version_prefix}7.${firmware_version}?version=${ros_version}" -O "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
+        $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/NEWEST${version_prefix}7.${firmware_version}?version=${ros_version}" -O "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
         if ! check_error $? "Failed to get NEWEST${version_prefix}7.${firmware_version}"; then
             continue
         fi
@@ -68,17 +68,17 @@ download_specific_ros7_version() {
     cd "${TARGET_DIR}/${version}" || return 1
 
     [ -e "CHANGELOG" ] && rm -f CHANGELOG
-    $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/CHANGELOG"
+    $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/CHANGELOG"
     check_error $? "Failed to download CHANGELOG" || return 1
 
     # packages.csv
     [ -e "packages.csv" ] && rm -f packages.csv
-    $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/packages.csv"
+    $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/packages.csv"
     check_error $? "Failed to download packages.csv"
 
     for file_arch in "${firmware_arch[@]}"; do
         # Packages
-        $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/all_packages-${file_arch}-${version}.zip"
+        $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/all_packages-${file_arch}-${version}.zip"
         if ! check_error $? "Failed to download all_packages-${file_arch}-${version}.zip"; then
             download_err=1
             break
@@ -99,7 +99,7 @@ download_specific_ros7_version() {
             ros_filename="routeros-${version}-${file_arch}.npk"
         fi
 
-        $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/${ros_filename}"
+        $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/${ros_filename}"
         if ! check_error $? "Failed to download routeros for ${file_arch}"; then
             download_err=1
             break
@@ -108,7 +108,7 @@ download_specific_ros7_version() {
         local user_agent_info=$(get_ros7_user_agent "$version")
         if [ "${file_arch}" != "x86" ] && [ "${user_agent_info}" == 'after' ]; then
             # Download wireless after 7.12
-            ${WGET} $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/wireless-${version}-${file_arch}.npk"
+            ${WGET} $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/wireless-${version}-${file_arch}.npk"
             if ! check_error $? "Failed to download wireless for ${file_arch}"; then
                 download_err=1
                 break
