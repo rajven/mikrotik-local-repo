@@ -133,11 +133,27 @@ server {
 
     #miroktik upgrade script
     location ~ ^/ros6-upgrade.php {  deny all;  }
+    location ~ ^/ros7-upgrade.php {  deny all;  }
 
     location ~ ^/routeros/(NEWEST6\.stable|NEWESTa6\.stable|NEWEST6\.long-term|NEWESTa6\.long-term|NEWEST6\.upgrade|NEWESTa6\.upgrade)$ {
         include fastcgi_params;
         fastcgi_pass unix:/run/php/php-fpm.sock;
         fastcgi_param SCRIPT_FILENAME /mnt/mirror/ros6-upgrade.php;
+        fastcgi_param QUERY_STRING    $query_string;
+        fastcgi_param REQUEST_URI     $request_uri;
+        # Отключаем chunked на исходящем ответе
+        chunked_transfer_encoding off;
+        # Буферизуем ответ PHP целиком, чтобы nginx мог посчитать Content-Length,
+        # если PHP его не задал
+        fastcgi_buffering on;
+        # Не давать nginx добавлять/менять кодировки
+        gzip off;
+        proxy_set_header Accept-Encoding "";
+    }
+    location ~ ^/routeros/(NEWEST7\.stable|NEWESTa7\.stable|NEWEST7\.long-term|NEWESTa7\.long-term|NEWEST7\.upgrade|NEWESTa7\.upgrade)$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME /mnt/mirror/ros7-upgrade.php;
         fastcgi_param QUERY_STRING    $query_string;
         fastcgi_param REQUEST_URI     $request_uri;
         # Отключаем chunked на исходящем ответе
@@ -170,18 +186,24 @@ server {
     # но разрешаем внутренний rewrite.
     RewriteCond %{THE_REQUEST} \s/+ros6-upgrade\.php(?:[?\s]) [NC]
     RewriteRule ^/ros6-upgrade\.php$ - [F,L]
+    RewriteCond %{THE_REQUEST} \s/+ros7-upgrade\.php(?:[?\s]) [NC]
+    RewriteRule ^/ros7-upgrade\.php$ - [F,L]
 
     # RouterOS 6 update URLs -> PHP backend
     RewriteRule ^/routeros/(NEWEST6\.stable|NEWESTa6\.stable|NEWEST6\.long-term|NEWESTa6\.long-term|NEWEST6\.upgrade|NEWESTa6\.upgrade)$ /ros6-upgrade.php [L]
+    # RouterOS 7 update URLs -> PHP backend
+    RewriteRule ^/routeros/(NEWEST7\.stable|NEWESTa7\.stable|NEWEST7\.long-term|NEWESTa7\.long-term|NEWEST7\.upgrade|NEWESTa7\.upgrade)$ /ros7-upgrade.php [L]
 
     # Отключаем gzip для этих URL
     <IfModule mod_deflate.c>
         SetEnvIf Request_URI "^/routeros/(NEWEST6|NEWESTa6)\.(stable|long-term|upgrade)" no-gzip dont-vary
+        SetEnvIf Request_URI "^/routeros/(NEWEST7|NEWESTa7)\.(stable|long-term|upgrade)" no-gzip dont-vary
     </IfModule>
 
     # Убираем Accept-Encoding у входящего запроса
     <IfModule mod_headers.c>
         SetEnvIf Request_URI "^/routeros/(NEWEST6|NEWESTa6)\.(stable|long-term|upgrade)" NO_ACCEPT_ENCODING
+        SetEnvIf Request_URI "^/routeros/(NEWEST7|NEWESTa7)\.(stable|long-term|upgrade)" NO_ACCEPT_ENCODING
         RequestHeader unset Accept-Encoding env=NO_ACCEPT_ENCODING
     </IfModule>
 
