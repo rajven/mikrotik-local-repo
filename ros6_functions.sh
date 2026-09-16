@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Функция загрузки ROS 6
+# ROS 6 download function
 download_ros6() {
     local force=$1
     local old_version old_timestamp old_release_date
@@ -22,7 +22,7 @@ download_ros6() {
             continue
         fi
 
-        # Чтение версий одной командой
+        # Read versions with a single command
         read -r old_version old_timestamp _ 2>/dev/null < "${TARGET_DIR}/LATEST.${firmware_version}"
         read -r new_version new_timestamp _ < "${TARGET_DIR}/LATEST.${firmware_version}.new"
 
@@ -31,7 +31,7 @@ download_ros6() {
 
         log "Latest release: ${new_version}"
 
-        # Упрощенная проверка изменения версии
+        # Simplified version change check
         if [[ "${new_version}" == "${old_version}" && "${old_timestamp}" == "${new_timestamp}" ]]; then
             version_changed=""
         else
@@ -47,7 +47,7 @@ download_ros6() {
         log "New version found: ${new_version} from ${new_release_date}"
         log "Old version: ${old_version} from ${old_release_date}"
 
-        # Использование единой функции загрузки
+        # Use a single download function
         if download_specific_ros6_version "${new_version}"; then
             mv "${TARGET_DIR}/LATEST.${firmware_version}.new" "${TARGET_DIR}/LATEST.${firmware_version}"
             log_success "ROS 6 version ${new_version} downloaded successfully."
@@ -59,7 +59,7 @@ download_ros6() {
 
 }
 
-# Функция загрузки конкретной версии ROS 6
+# Download a specific ROS 6 version
 download_specific_ros6_version() {
     local version=$1
     local file_arch ros_filename download_err=0
@@ -81,7 +81,7 @@ download_specific_ros6_version() {
             break
         fi
 
-        # Распаковка архива all_packages с автоматической перезаписью совпадающих файлов
+        # Extract the all_packages archive, automatically overwriting existing files
         log "Extracting all_packages-${file_arch}-${version}.zip"
         unzip -o -q "all_packages-${file_arch}-${version}.zip"
         if ! check_error $? "Failed to extract all_packages-${file_arch}-${version}.zip"; then
@@ -89,7 +89,7 @@ download_specific_ros6_version() {
             break
         fi
 
-        # RouterOS - определяем имя файла
+        # RouterOS - determine the filename
         if [[ "${file_arch}" = "ppc" ]]; then
             ros_filename="routeros-powerpc-${version}.npk"
         else

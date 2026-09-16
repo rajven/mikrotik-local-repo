@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Функции логирования
+# Logging functions
 log() {
     if [ "${LOG_OFF}" = "1" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1".
@@ -25,7 +25,7 @@ log_success() {
     fi
 }
 
-# Функция проверки ошибок
+# Error checking function
 check_error() {
     local ret=$1
     local message=$2
@@ -36,13 +36,13 @@ check_error() {
     return 0
 }
 
-# Функция загрузки дополнительных файлов
+# Additional files download function
 download_additional_files() {
     local version=$1
     local user_agent=${2:-""}
     
     for file in "${additional_files[@]}"; do
-	file=$(echo ${file} | sed "s/VERSION/${version}/")
+        file=$(echo ${file} | sed "s/VERSION/${version}/")
         if [ -n "$user_agent" ]; then
             $WGET $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/${file}" || \
             log "Warning: Failed to download ${file}"
@@ -53,7 +53,7 @@ download_additional_files() {
     done
 }
 
-# Функция для преобразования версии в числовой формат
+# Convert version to numeric format
 version_to_number() {
     local version=$1
     local major=$(echo $version | cut -d. -f1)
@@ -62,34 +62,34 @@ version_to_number() {
     echo $((major * 1000000 + minor * 1000 + patch))
 }
 
-# Функция для определения типа версии и нужного user agent
+# Determine the version type and required user agent
 get_ros7_user_agent() {
     local version=$1
     local version_num=$(version_to_number "$version")
     local threshold_num=$(version_to_number "7.12.1")
     
     if [ $version_num -ge $threshold_num ]; then
-        # Версия равна или выше 7.12.1
+        # Version is 7.12.1 or later
         echo "after"
     else
-        # Версия ниже 7.12.1
+        # Version is earlier than 7.12.1
         echo "before"
     fi
 }
 
-# Функция загрузки Winbox с сохранением по версиям
+# Download Winbox and store files by version
 download_winbox() {
     log "Downloading Winbox files from mikrotik.com"
     
     mkdir -p "$WINBOX_DIR"
     
-    # Получаем HTML-контент страницы
+    # Fetch the HTML content of the page
     PAGE_CONTENT=$(curl -s "https://mikrotik.com/download/winbox")
     
-    # Ищем все ссылки на .zip, .dmg и .sha256 файлы
+    # Find all links to .zip, .dmg, and .sha256 files
     LINKS=$(echo "$PAGE_CONTENT" | grep -oP 'href="https?://[^"]*\.(zip|dmg|sha256)"' | sed 's/href="//;s/"//')
     
-    # Альтернативный вариант: ищем все ссылки, содержащие download.mikrotik.com и winbox
+    # Alternative: find all links containing download.mikrotik.com and winbox
     if [ -z "$LINKS" ]; then
         LINKS=$(echo "$PAGE_CONTENT" | grep -oP 'https?://download\.mikrotik\.com[^"]*winbox[^"]*\.(zip|dmg|sha256)"' | sed 's/"//')
     fi
@@ -99,31 +99,31 @@ download_winbox() {
         return 1
     fi
     
-    # Удаляем дубликаты ссылок
+    # Remove duplicate links
     LINKS=$(echo "$LINKS" | sort -u)
     
     log "Found $(echo "$LINKS" | wc -l) unique links"
     
     for LINK in $LINKS; do
-        # Извлекаем версию из URL (часть после /winbox/)
+        # Extract the version from the URL (part after /winbox/)
         if [[ "$LINK" =~ /routeros/winbox/([^/]+)/ ]]; then
             VERSION="${BASH_REMATCH[1]}"
-            # Создаем путь для сохранения с учетом версии
+            # Create a version-specific storage path
             VERSION_DIR="$WINBOX_DIR/$VERSION"
         else
             VERSION_DIR="$WINBOX_DIR"
         fi
         
-        # Извлекаем имя файла из URL
+        # Extract the filename from the URL
         FILENAME=$(basename "$LINK")
         
-        # Полный путь для сохранения
+        # Full path for saving the file
         FILE_PATH="$VERSION_DIR/$FILENAME"
         
-        # Создаем каталог для версии
+        # Create the version directory
         mkdir -p "$VERSION_DIR"
         
-        # Проверяем, существует ли файл уже
+        # Check if the file already exists
         if [ -f "$FILE_PATH" ]; then
             log "File already exists: $FILE_PATH"
             continue
@@ -131,9 +131,9 @@ download_winbox() {
         
         log "Downloading: $LINK"
         
-        # Скачиваем файл с обработкой ошибок
+        # Download the file with error handling
         if curl -s -L -o "$FILE_PATH" "$LINK"; then
-            # Проверяем, что файл не пустой
+            # Check that the file is not empty
             if [ -s "$FILE_PATH" ]; then
                 FILE_SIZE=$(du -h "$FILE_PATH" | cut -f1)
                 log_success "Downloaded: $FILE_PATH ($FILE_SIZE)"
@@ -146,7 +146,7 @@ download_winbox() {
             rm -f "$FILE_PATH"
         fi
         
-        # Небольшая пауза между загрузками
+        # Small delay between downloads
         sleep 0.5
     done
 }

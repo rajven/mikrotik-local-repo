@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Функция загрузки ROS 7
+# ROS 7 download function
 download_ros7() {
     local ros_version=$1
     local user_agent="RouterOS $1"
@@ -23,13 +23,13 @@ download_ros7() {
             continue
         fi
 
-        # Чтение версий одной командой
+        # Read versions with a single command
         read -r old_version old_timestamp _ 2>/dev/null < "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}"
         read -r new_version new_timestamp _ < "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
 
         log "Latest ${description} release: ${new_version}"
 
-        # Упрощенная проверка изменения версии
+        # Simplified version change check
         if [[ "${new_version}" == "${old_version}" && "${old_timestamp}" == "${new_timestamp}" ]]; then
             version_changed=""
         else
@@ -44,7 +44,7 @@ download_ros7() {
 
         log "New version found: ${new_version}"
 
-        # Использование единой функции загрузки
+        # Use a single download function
         if download_specific_ros7_version "${ros_version}" "${new_version}"; then
             mv "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new" "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}"
             log_success "ROS 7 version ${new_version} downloaded successfully."
@@ -55,7 +55,7 @@ download_ros7() {
     done
 }
 
-# Функция загрузки конкретной версии ROS 7
+# Download a specific ROS 7 version
 download_specific_ros7_version() {
     local ros_version=$1
     local user_agent="RouterOS $1"
@@ -84,7 +84,7 @@ download_specific_ros7_version() {
             break
         fi
 
-        # Распаковка архива all_packages с автоматической перезаписью совпадающих файлов
+        # Extract the all_packages archive, automatically overwriting existing files
         log "Extracting all_packages-${file_arch}-${version}.zip"
         unzip -o -q "all_packages-${file_arch}-${version}.zip"
         if ! check_error $? "Failed to extract all_packages-${file_arch}-${version}.zip"; then
@@ -92,7 +92,7 @@ download_specific_ros7_version() {
             break
         fi
 
-        # RouterOS - определяем имя файла
+        # RouterOS - determine the filename
         if [[ "${file_arch}" = "x86" ]]; then
             ros_filename="routeros-${version}.npk"
         else
@@ -107,7 +107,7 @@ download_specific_ros7_version() {
 
         local user_agent_info=$(get_ros7_user_agent "$version")
         if [ "${file_arch}" != "x86" ] && [ "${user_agent_info}" == 'after' ]; then
-            #download wireless after 7.12
+            # Download wireless after 7.12
             ${WGET} $WGET_OPTS -U "$user_agent" "http://upgrade.mikrotik.com/routeros/${version}/wireless-${version}-${file_arch}.npk"
             if ! check_error $? "Failed to download wireless for ${file_arch}"; then
                 download_err=1

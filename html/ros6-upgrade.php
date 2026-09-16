@@ -1,28 +1,28 @@
 <?php
 /**
- * Прокси для upgrade.mikrotik.com
- * Принимает запросы вида:
+ * Proxy for upgrade.mikrotik.com
+ * Accepts requests such as:
  *   /NEWEST6.upgrade?version=6.49.21
  *   /NEWESTa6.upgrade?version=6.49.21
  *
- * и перенаправляет их на:
- *   https://upgrade.mikrotik.com/routeros/<файл>?<query>
+ * and forwards them to:
+ *   https://upgrade.mikrotik.com/routeros/<file>?<query>
  *
- * Если upstream ответил корректно — возвращаем его ответ как есть.
- * Если запрос не удался — отдаём fallback:
- *   NEWEST6.stable      => содержимое локального файла LATEST.6
- *   NEWESTa6.stable     => содержимое локального файла LATEST.6
- *   NEWEST6.long-term   => содержимое локального файла LATEST.6fix
- *   NEWESTa6.long-term  => содержимое локального файла LATEST.6fix
+ * If the upstream responds successfully, its response is returned as-is.
+ * If the request fails, the following fallback values are used:
+ *   NEWEST6.stable      => contents of the local LATEST.6 file
+ *   NEWESTa6.stable     => contents of the local LATEST.6 file
+ *   NEWEST6.long-term   => contents of the local LATEST.6fix file
+ *   NEWESTa6.long-term  => contents of the local LATEST.6fix file
  *   NEWEST6.upgrade     => "7.12.1 1700221125"
  *   NEWESTa6.upgrade    => "7.23.5 1788499966"
  *
- * Если локальный файл для stable/long-term недоступен или пуст —
- * используется захардкоженное значение "6.49.21 1788435939".
+ * If the local file for stable/long-term is unavailable or empty,
+ * the hardcoded value "6.49.21 1788435939" is used.
  *
- *   - всегда отдаём Content-Length;
- *   - принудительно HTTP/1.0 + Connection: close (RouterOS так надёжнее);
- *   - никакого chunked, никаких неявных переводов строк.
+ *   - always sends Content-Length;
+ *   - forces HTTP/1.0 + Connection: close (more reliable for RouterOS);
+ *   - no chunked encoding and no implicit line breaks.
  */
 
 const UPSTREAM_BASE   = 'https://upgrade.mikrotik.com/routeros/';
@@ -30,8 +30,8 @@ const CONNECT_TIMEOUT = 5;
 const TOTAL_TIMEOUT   = 10;
 
 /**
- * Файлы-источники локального fallback для stable/long-term.
- * Путь относительный — рядом со скриптом.
+ * Local fallback source files for stable/long-term.
+ * The paths are relative to the script location.
  */
 const LOCAL_STABLE_FILE    = __DIR__ . '/LATEST.6';
 const LOCAL_LONGTERM_FILE  = __DIR__ . '/LATEST.6fix';
@@ -46,8 +46,8 @@ $FALLBACKS = [
 ];
 
 /**
- * Возвращает содержимое локального файла-fallback или null,
- * если файл недоступен/пуст/нечитаем.
+ * Returns the contents of a local fallback file, or null
+ * if the file is unavailable, empty, or unreadable.
  */
 function readLocalFallback(string $path): ?string
 {
@@ -66,7 +66,7 @@ function readLocalFallback(string $path): ?string
 }
 
 /**
- * Подбирает fallback-содержимое для запрошенного файла.
+ * Selects the fallback content for the requested file.
  */
 function resolveFallback(string $file, array $defaults): string
 {
@@ -91,7 +91,7 @@ function resolveFallback(string $file, array $defaults): string
     return $defaults[$file];
 }
 
-// ---------- какой файл просят ----------
+// ---------- requested file ----------
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $file = basename($path);
 
@@ -104,7 +104,7 @@ if (!isset($FALLBACKS[$file])) {
     exit;
 }
 
-// ---------- запрос к upstream ----------
+// ---------- upstream request ----------
 $query = $_SERVER['QUERY_STRING'] ?? '';
 $url   = UPSTREAM_BASE . $file . ($query !== '' ? '?' . $query : '');
 
@@ -117,9 +117,9 @@ curl_setopt_array($ch, [
     CURLOPT_USERAGENT      => 'MikroTik-Upgrade-Proxy/1.0',
     CURLOPT_SSL_VERIFYPEER => true,
     CURLOPT_SSL_VERIFYHOST => 2,
-    // Не просим сжатия — RouterOS gzip не умеет
+    // Do not request compression — RouterOS does not support gzip
     CURLOPT_ENCODING       => '',
-    // Явно HTTP/1.1, но с Connection: close (см. ниже)
+    // Explicitly use HTTP/1.1 with Connection: close (see below)
     CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
 ]);
 
@@ -135,7 +135,7 @@ $isValid = (
     && preg_match('/^\s*\d+(\.\d+)+\s+\d+/', $body) === 1
 );
 
-// ---------- формируем тело ответа ----------
+// ---------- build response body ----------
 
 if ($isValid) {
     $payload = rtrim($body, "\r\n \t") . "\n";
@@ -147,18 +147,17 @@ if ($isValid) {
     $payload = resolveFallback($file, $FALLBACKS);
 }
 
-// ---------- заголовки, критичные для RouterOS ----------
-// HTTP/1.0 => chunked по спецификации невозможен, RouterOS это любит
+// ---------- headers critical for RouterOS ----------
+// HTTP/1.0 => chunked encoding is not possible by specification, which RouterOS prefers
 header('HTTP/1.0 200 OK');
 header('Content-Type: text/plain');
 header('Content-Length: ' . strlen($payload));
 header('Connection: close');
 header('Cache-Control: no-store');
 
-// Отключаем любую буферизацию/сжатие на уровне PHP
+// Disable any buffering/compression at the PHP level
 @ini_set('zlib.output_compression', '0');
 @ini_set('output_handler', '');
 while (ob_get_level() > 0) { ob_end_clean(); }
 
 echo $payload;
-
