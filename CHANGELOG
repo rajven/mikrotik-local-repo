@@ -1,3 +1,6 @@
+What's new (Tue Sep 29 22:35:18 MSK 2026):
+*) A simple script for Mikrotik has been added to automatically update the system, with control over the version being installed.
+
 What's new (Mon Sep 28 10:46:52 PM MSK 2026):
 *) The download of the package for upgrading from ROS6 has been added.
 
