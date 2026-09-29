@@ -1,0 +1,347 @@
+# ============================================================
+# BackupAndUpdate (ROS6/ROS7 compatible + Server Policy Check)
+# ============================================================
+
+:local scriptName "BackupAndUpdate"
+:local dailySchedulerName "BKPUPD-DAILY"
+:local rebootSchedulerName "BKPUPD-REBOOT"
+:local updateChannel "stable"
+:local backupName "auto-backup"
+:local backupPassword ""
+:local backupPath ""
+:local backupFullPath ""
+:local flashAvailable false
+:local Httpmode "http"
+
+# URL сервера для проверки
+:local policyCheckUrl "http://SERVER_NAME/routeros/force_update.php"
+
+:local osUpdateNeeded false
+:local firmwareUpdateNeeded false
+:local routerboardAvailable false
+:local currentFirmware ""
+:local upgradeFirmware ""
+:local currentVersion ""
+:local latestVersion ""
+
+:log info "BackupAndUpdate: === SCRIPT STARTED ==="
+
+# ============================================================
+# Step 1: Daily scheduler
+# ============================================================
+
+:do {
+    :log info "BackupAndUpdate: Step 1 start"
+
+    :if ([:len [/system scheduler find name=$dailySchedulerName]] = 0) do={
+        /system scheduler add \
+            name=$dailySchedulerName \
+            start-time=05:00:00 \
+            interval=1d \
+            on-event=$scriptName \
+            policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon
+        :log info "BackupAndUpdate: daily scheduler created"
+    } else={
+        :log info "BackupAndUpdate: daily scheduler exists"
+    }
+
+    :log info "BackupAndUpdate: Step 1 OK"
+} on-error={
+    :log error "BackupAndUpdate: Step 1 FAILED"
+}
+
+# ============================================================
+# Step 2: Check RouterOS updates
+# ============================================================
+
+:do {
+    :log info "BackupAndUpdate: Step 2 start"
+
+    # Проверяем мажорную версию ROS, чтобы установить mode=http только для ROS 7
+    :local rosVersion [/system resource get version]
+    :local majorVersion [:pick $rosVersion 0 1]
+
+    :local setMode "print"
+    :if ($majorVersion = "7") do={
+        :log info "BackupAndUpdate: ROS 7 detected -> executing mode=http"
+        :local cmd "/system package update set mode=$Httpmode"
+        :execute $cmd
+        :delay 1s
+    } else={
+        :log info "BackupAndUpdate: mode=http skipped (ROS6)"
+    }
+
+    /system package update set channel=$updateChannel
+    :log info "BackupAndUpdate: channel set $updateChannel"
+
+    /system package update check-for-updates
+    :log info "BackupAndUpdate: check started, waiting 15s"
+
+    :delay 15s
+
+    :set currentVersion [/system package update get installed-version]
+    :log info ("BackupAndUpdate: current=" . $currentVersion)
+
+    :set latestVersion [/system package update get latest-version]
+    :log info ("BackupAndUpdate: latest=" . $latestVersion)
+
+    :local updateStatus [/system package update get status]
+    :log info ("BackupAndUpdate: status=" . $updateStatus)
+
+    :if ($updateStatus = "New version is available") do={
+        :set osUpdateNeeded true
+        :log info "BackupAndUpdate: update IS available"
+    } else={
+        :log info "BackupAndUpdate: no update available"
+    }
+
+    :log info "BackupAndUpdate: Step 2 OK"
+} on-error={
+    :log error "BackupAndUpdate: Step 2 FAILED"
+}
+
+# ============================================================
+# Step 3: Check RouterBOARD firmware
+# ============================================================
+
+:do {
+    :log info "BackupAndUpdate: Step 3 start"
+
+    :set currentFirmware [/system routerboard get current-firmware]
+    :log info ("BackupAndUpdate: current-fw=" . $currentFirmware)
+
+    :set upgradeFirmware [/system routerboard get upgrade-firmware]
+    :log info ("BackupAndUpdate: upgrade-fw=" . $upgradeFirmware)
+
+    :set routerboardAvailable true
+
+    :if ($currentFirmware != $upgradeFirmware) do={
+        :set firmwareUpdateNeeded true
+        :log info "BackupAndUpdate: firmware update needed"
+    } else={
+        :log info "BackupAndUpdate: firmware up to date"
+    }
+
+    :log info "BackupAndUpdate: Step 3 OK"
+} on-error={
+    :log error "BackupAndUpdate: Step 3 FAILED"
+}
+
+# ============================================================
+# Step 3.5: Check update policy on server (NEW)
+# ============================================================
+
+:if ($osUpdateNeeded = true) do={
+    :do {
+        :log info "BackupAndUpdate: Step 3.5 start - checking server policy"
+
+        :local checkUrl ($policyCheckUrl . "?new_version=" . $latestVersion)
+        :local checkFile "force_update_check.txt"
+        :local serverResponse "DISABLED"
+
+        # Удаляем старый файл проверки, если он остался
+        :foreach fileId in=[/file find name=$checkFile] do={
+            /file remove $fileId
+        }
+
+        # Скачиваем ответ сервера
+        /tool fetch url=$checkUrl mode=http dst-path=$checkFile
+        :delay 2s
+
+        # Читаем содержимое файла
+        :local fileId [/file find name=$checkFile]
+        :if ([:len $fileId] > 0) do={
+            :set serverResponse [/file get $fileId contents]
+            /file remove $fileId
+        }
+
+        :log info ("BackupAndUpdate: server response for v" . $latestVersion . ": " . $serverResponse)
+
+        :if ($serverResponse != "ENABLED") do={
+            :log warning "BackupAndUpdate: update NOT authorized by server. Aborting RouterOS update."
+            :set osUpdateNeeded false
+        } else={
+            :log info "BackupAndUpdate: update authorized by server."
+        }
+
+        :log info "BackupAndUpdate: Step 3.5 OK"
+    } on-error={
+        :log error "BackupAndUpdate: Step 3.5 FAILED (server unreachable or fetch error)"
+        :set osUpdateNeeded false
+    }
+}
+
+# ============================================================
+# Step 4: RouterOS update
+# ============================================================
+
+:if ($osUpdateNeeded = true) do={
+    :do {
+        :log info "BackupAndUpdate: Step 4 start - RouterOS update"
+
+        # Reboot scheduler
+        :if ([:len [/system scheduler find name=$rebootSchedulerName]] = 0) do={
+            /system scheduler add \
+                name=$rebootSchedulerName \
+                start-time=startup \
+                interval=0 \
+                on-event=":delay 3m; /system script run BackupAndUpdate" \
+                policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon
+            :log info "BackupAndUpdate: reboot scheduler created"
+        }
+
+        # ============================================================
+        # Detect backup storage path
+        # ============================================================
+
+        # ============================================================
+        # Detect flash directory
+        # ============================================================
+
+        :do {
+            :local test [/file get flash name]
+            :set flashAvailable true
+            :set backupPath "flash/"
+            :log info "BackupAndUpdate: flash directory is available"
+        } on-error={
+            :set flashAvailable false
+            :set backupPath ""
+            :log info "BackupAndUpdate: flash directory not available, using root"
+        }
+
+        # ============================================================
+        # Generate backup name from Serial Number and Date
+        # ============================================================
+
+        :do {
+            :local serial [/system routerboard get serial-number]
+            :log info ("BackupAndUpdate: device serial: " . $serial)
+
+            :local dateRaw [/system clock get date]
+            :local day [:pick $dateRaw 4 6]
+            :local monthStr [:pick $dateRaw 0 3]
+            :local year [:pick $dateRaw 7 11]
+
+            :local monthNum "01"
+            :if ($monthStr = "jan") do={ :set monthNum "01" }
+            :if ($monthStr = "feb") do={ :set monthNum "02" }
+            :if ($monthStr = "mar") do={ :set monthNum "03" }
+            :if ($monthStr = "apr") do={ :set monthNum "04" }
+            :if ($monthStr = "may") do={ :set monthNum "05" }
+            :if ($monthStr = "jun") do={ :set monthNum "06" }
+            :if ($monthStr = "jul") do={ :set monthNum "07" }
+            :if ($monthStr = "aug") do={ :set monthNum "08" }
+            :if ($monthStr = "sep") do={ :set monthNum "09" }
+            :if ($monthStr = "oct") do={ :set monthNum "10" }
+            :if ($monthStr = "nov") do={ :set monthNum "11" }
+            :if ($monthStr = "dec") do={ :set monthNum "12" }
+
+            :set backupName ( "auto-backup-" . $serial . "-" . $year . "-" . $monthNum . "-" . $day)
+            :set backupFullPath ($backupPath . $backupName)
+            :log info ("BackupAndUpdate: backup full name: " . $backupFullPath)
+        } on-error={
+            :log error "BackupAndUpdate: failed to generate backup name"
+        }
+
+        # Remove old backups (все файлы с префиксом backup- в нужной директории)
+        :log info "BackupAndUpdate: removing old backup files"
+        :foreach fileId in=[/file find] do={
+            :local fileName [/file get $fileId name]
+            :if ([:pick $fileName 0 ([:len $backupPath] + 7)] = ($backupPath . "auto-backup-")) do={
+                :if (([:pick $fileName ([:len $fileName] - 7) [:len $fileName]] = ".backup") || \
+                     ([:pick $fileName ([:len $fileName] - 4) [:len $fileName]] = ".rsc")) do={
+                    /file remove $fileId
+                    :log info ("BackupAndUpdate: removed old file: " . $fileName)
+                }
+            }
+        }
+
+        # Binary backup
+        :log info "BackupAndUpdate: creating binary backup"
+        :if ($backupPassword = "") do={
+            /system backup save dont-encrypt=yes name=$backupFullPath
+        } else={
+            /system backup save password=$backupPassword name=$backupFullPath
+        }
+        :log info "BackupAndUpdate: binary backup done"
+
+        # Config export
+        :log info "BackupAndUpdate: exporting config"
+        /export file=$backupFullPath
+        :log info "BackupAndUpdate: config export done"
+
+        # Wait for files
+        :log info "BackupAndUpdate: waiting for backup files"
+        :local backupReady false
+        :local backupWait 0
+
+        :while (($backupReady = false) && ($backupWait < 60)) do={
+            :delay 1s
+            :if (([:len [/file find name=($backupFullPath . ".backup")]] > 0) && \
+                 ([:len [/file find name=($backupFullPath . ".rsc")]] > 0)) do={
+                :set backupReady true
+            }
+            :set backupWait ($backupWait + 1)
+        }
+
+        :if ($backupReady = false) do={
+            :log error "BackupAndUpdate: backup timeout after 60s"
+            :return
+        }
+        :log info ("BackupAndUpdate: backup files ready in " . $backupWait . "s")
+
+        # Install
+        :log info ("BackupAndUpdate: installing RouterOS " . $latestVersion)
+        :log warning "BackupAndUpdate: REBOOTING NOW"
+        /system package update install
+        :return
+
+    } on-error={
+        :log error "BackupAndUpdate: Step 4 FAILED"
+    }
+}
+
+# ============================================================
+# Step 5: RouterBOARD firmware update
+# ============================================================
+
+:if ($firmwareUpdateNeeded = true) do={
+    :do {
+        :log info "BackupAndUpdate: Step 5 start - firmware update"
+
+        :foreach schedulerId in=[/system scheduler find name=$rebootSchedulerName] do={
+            /system scheduler remove $schedulerId
+        }
+
+        /system scheduler add \
+            name=$rebootSchedulerName \
+            start-time=startup \
+            interval=0 \
+            on-event=":delay 3m; /system script run BackupAndUpdate" \
+            policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon
+
+        :log info ("BackupAndUpdate: upgrading firmware " . $currentFirmware . " -> " . $upgradeFirmware)
+        /system routerboard upgrade
+
+        :delay 5s
+
+        :log warning "BackupAndUpdate: REBOOTING NOW"
+        /system reboot
+        :return
+
+    } on-error={
+        :log error "BackupAndUpdate: Step 5 FAILED"
+    }
+}
+
+# ============================================================
+# Step 6: Cleanup
+# ============================================================
+
+:log info "BackupAndUpdate: Step 6 - nothing to update or update aborted"
+
+:foreach schedulerId in=[/system scheduler find name=$rebootSchedulerName] do={
+    /system scheduler remove $schedulerId
+}
+
+:log info "BackupAndUpdate: === SCRIPT FINISHED ==="
