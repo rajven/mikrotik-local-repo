@@ -1,5 +1,3 @@
-/system script
-remove BackupAndUpdate
 add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="# ============================================================\
     \n# BackupAndUpdate (ROS6/ROS7 compatible + Server Policy Check)\
     \n# ============================================================\
@@ -15,7 +13,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n:local flashAvailable false\
     \n:local Httpmode \"http\"\
     \n\
-    \n# URL \D1\81\D0\B5\D1\80\D0\B2\D0\B5\D1\80\D0\B0 \D0\B4\D0\BB\D1\8F \D0\BF\D1\80\D0\BE\D0\B2\D0\B5\D1\80\D0\BA\D0\B8\
+    \n# Server URL for policy check\
     \n:local policyCheckUrl \"http://SERVER_NAME/routeros/force_update.php\"\
     \n\
     \n:local osUpdateNeeded false\
@@ -59,8 +57,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n:do {\
     \n    :log info \"BackupAndUpdate: Step 2 start\"\
     \n\
-    \n    # \D0\9F\D1\80\D0\BE\D0\B2\D0\B5\D1\80\D1\8F\D0\B5\D0\BC \D0\BC\D0\B0\D0\B6\D0\BE\D1\80\D0\BD\D1\83\D1\8E \D0\B2\D0\B5\D1\80\D1\81\D0\B8\D1\8E ROS, \D1\87\D1\82\D0\BE\D0\B1\D1\8B \D1\83\D1\81\D1\82\D0\B0\D0\BD\D0\BE\D0\B2\D0\B8\D1\82\D1\8C\
-    \_mode=http \D1\82\D0\BE\D0\BB\D1\8C\D0\BA\D0\BE \D0\B4\D0\BB\D1\8F ROS 7\
+    \n    # Check major ROS version to set mode=http only for ROS 7\
     \n    :local rosVersion [/system resource get version]\
     \n    :local majorVersion [:pick \$rosVersion 0 1]\
     \n\
@@ -142,17 +139,16 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n        :local checkFile \"force_update_check.txt\"\
     \n        :local serverResponse \"DISABLED\"\
     \n\
-    \n        # \D0\A3\D0\B4\D0\B0\D0\BB\D1\8F\D0\B5\D0\BC \D1\81\D1\82\D0\B0\D1\80\D1\8B\D0\B9 \D1\84\D0\B0\D0\B9\D0\BB \D0\BF\D1\80\D0\BE\D0\B2\D0\B5\D1\80\D0\BA\D0\B8, \D0\B5\D1\81\D0\BB\D0\B8 \D0\BE\D0\BD \D0\BE\D1\81\D1\82\D0\B0\D0\BB\D1\81\D1\
-    \8F\
+    \n        # Delete old check file if it still exists\
     \n        :foreach fileId in=[/file find name=\$checkFile] do={\
     \n            /file remove \$fileId\
     \n        }\
     \n\
-    \n        # \D0\A1\D0\BA\D0\B0\D1\87\D0\B8\D0\B2\D0\B0\D0\B5\D0\BC \D0\BE\D1\82\D0\B2\D0\B5\D1\82 \D1\81\D0\B5\D1\80\D0\B2\D0\B5\D1\80\D0\B0\
+    \n        # Download server response\
     \n        /tool fetch url=\$checkUrl mode=http dst-path=\$checkFile\
     \n        :delay 2s\
     \n\
-    \n        # \D0\A7\D0\B8\D1\82\D0\B0\D0\B5\D0\BC \D1\81\D0\BE\D0\B4\D0\B5\D1\80\D0\B6\D0\B8\D0\BC\D0\BE\D0\B5 \D1\84\D0\B0\D0\B9\D0\BB\D0\B0\
+    \n        # Read file contents\
     \n        :local fileId [/file find name=\$checkFile]\
     \n        :if ([:len \$fileId] > 0) do={\
     \n            :set serverResponse [/file get \$fileId contents]\
@@ -247,8 +243,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n            :log error \"BackupAndUpdate: failed to generate backup name\"\
     \n        }\
     \n\
-    \n        # Remove old backups (\D0\B2\D1\81\D0\B5 \D1\84\D0\B0\D0\B9\D0\BB\D1\8B \D1\81 \D0\BF\D1\80\D0\B5\D1\84\D0\B8\D0\BA\D1\81\D0\BE\D0\BC backup- \D0\B2 \D0\BD\D1\83\D0\B6\D0\BD\D0\BE\D0\B9 \D0\B4\D0\B8\D1\80\D0\B5\D0\BA\D1\82\D0\BE\D1\80\
-    \D0\B8\D0\B8)\
+    \n        # Remove old backups (all files with prefix auto-backup- in the target directory)\
     \n        :log info \"BackupAndUpdate: removing old backup files\"\
     \n        :foreach fileId in=[/file find] do={\
     \n            :local fileName [/file get \$fileId name]\
@@ -349,7 +344,4 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n    /system scheduler remove \$schedulerId\
     \n}\
     \n\
-    \n:log info \"BackupAndUpdate: === SCRIPT FINISHED ===\"\
-    \n"
-
-/system script run BackupAndUpdate
+    \n:log info \"BackupAndUpdate: === SCRIPT FINISHED ===\""

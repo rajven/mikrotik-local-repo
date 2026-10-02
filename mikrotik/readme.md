@@ -1,141 +1,133 @@
-# MikroTik Auto Backup & Update Script
+# MikroTik Auto Backup & Update System
 
-Автоматизированный скрипт для MikroTik RouterOS, который выполняет резервное копирование конфигурации и обновление системы с проверкой политики на внешнем сервере.
+[🇬🇧nglish](readme.md) · [🇷🇺усский](readme.ru.md)
 
-## 📋 Возможности
+An automated solution for MikroTik RouterOS that performs configuration backups, system updates, and firmware upgrades, featuring an intelligent local proxy server with caching and fallback mechanisms.
 
-- ✅ **Ежедневное резервное копирование** — создание бинарного бэкапа и экспорта конфигурации
-- ✅ **Автоматическая проверка обновлений** RouterOS (канал `stable`)
-- ✅ **Обновление прошивки RouterBOARD** при наличии новой версии
-- ✅ **Проверка политики обновлений** на внешнем сервере (force_update)
-- ✅ **Совместимость с ROS6 и ROS7**
-- ✅ **Умное именование бэкапов** — с использованием серийного номера и даты
-- ✅ **Автоматическая очистка** старых бэкапов
-- ✅ **Планировщик перезагрузки** для продолжения работы после апдейта
+## 📋 Features
 
-## 🔧 Как это работает
+- ✅ **Daily Automated Backups** – Creates both binary backups and `.rsc` configuration exports.
+- ✅ **Automatic RouterOS Update Checks** – Monitors the configured update channel (e.g., `stable`).
+- ✅ **RouterBOARD Firmware Upgrades** – Automatically upgrades firmware when a new version is detected.
+- ✅ **Intelligent Local Proxy** – Caches upstream responses, provides instant fallbacks during network issues, and prevents RouterOS update timeouts.
+- ✅ **ROS6 & ROS7 Compatibility** – Adapts behavior based on the detected major RouterOS version.
+- ✅ **Smart Backup Naming** – Uses the device's Serial Number and current Date for unique, traceable filenames.
+- ✅ **Automatic Cleanup** – Removes outdated backup files before creating new ones.
+- ✅ **Reboot Scheduler** – Ensures the update script resumes and completes successfully after a device reboot.
+- ✅ **Optional Server Policy Check** – Centralized control to allow or block specific update versions.
 
-Скрипт выполняется пошагово:
+## 🔧 How It Works
 
-1. **Шаг 1** — Создаёт ежедневный планировщик (05:00) для собственного запуска
-2. **Шаг 2** — Проверяет наличие обновлений RouterOS
-3. **Шаг 3** — Проверяет версию прошивки RouterBOARD
-4. **Шаг 3.5** — Спрашивает у внешнего сервера разрешение на обновление
-5. **Шаг 4** — Создаёт бэкап и устанавливает обновление RouterOS
-6. **Шаг 5** — Обновляет прошивку RouterBOARD
-7. **Шаг 6** — Очистка и завершение
+The script executes in a strict, sequential order:
 
-Скрипт представлен в двух вариантах:
+1. **Step 1** – Creates a daily scheduler (05:00) to trigger itself.
+2. **Step 2** – Checks for RouterOS package updates (forces `mode=http` on ROS7).
+3. **Step 3** – Checks for RouterBOARD firmware updates.
+4. **Step 3.5** – *(Optional)* Queries the external server for update authorization.
+5. **Step 4** – Creates backups, installs the RouterOS update, and schedules a post-reboot continuation.
+6. **Step 5** – Upgrades the RouterBOARD firmware (executed after the Step 4 reboot).
+7. **Step 6** – Cleans up the reboot scheduler and finishes.
 
-* upgrade-mikrotik-inline.rsc - для вставки из терминала (может тормозить на слабых процах)
-* upgrade-mikrotik.txt - для ручного создания через winbox|web
+The script is provided in two formats:
+* `upgrade-mikrotik-inline.rsc` – For direct copy-paste into the terminal (may lag on devices with weak CPUs).
+* `upgrade-mikrotik.txt` – For manual creation via Winbox or WebFig.
 
-## ⚙️ Настройка
+## ⚙️ MikroTik Configuration
 
-Перед использованием отредактируйте переменные в начале скрипта:
+Before using the script, edit the variables at the top of the file to match your environment:
 
 ```routeros
 :local scriptName "BackupAndUpdate"
 :local dailySchedulerName "BKPUPD-DAILY"
 :local rebootSchedulerName "BKPUPD-REBOOT"
-:local updateChannel "stable"          # Канал обновлений: stable, testing, development
-:local backupName "auto-backup"        # Префикс имени бэкапа
-:local backupPassword ""               # Пароль для шифрования бэкапа (пусто = без шифрования)
-:local Httpmode "http"                 # http или https (только для ROS7)
+:local updateChannel "stable"          # Update channel: stable, testing, development, or long-term
+:local backupName "auto-backup"        # Backup filename prefix
+:local backupPassword ""               # Encryption password (leave empty for no encryption)
+:local Httpmode "http"                 # http or https (required for ROS7 update checks)
 
-# URL сервера проверки политики обновлений
-:local policyCheckUrl "http://SERVER_NAME/routeros/force_update.php"
+# URL for centralized update policy check
+:local policyCheckUrl "http://YOUR_SERVER_NAME/routeros/force_update.php"
 ```
 
-### Сервер проверки политики
-
-Скрипт отправляет GET-запрос на `policyCheckUrl` с параметром `new_version`:
-
-```
-GET http://SERVER_NAME/routeros/force_update.php?new_version=7.15.1
-```
-
-Сервер должен вернуть **`ENABLED`**, чтобы разрешить обновление. Любой другой ответ (или недоступность сервера) — блокирует обновление.
+> **Note on using the Local Proxy:** To utilize the caching proxy, ensure your MikroTik devices resolve `upgrade.mikrotik.com` to your local server's IP address (via DNS static entries or firewall NAT), or configure the update server URL directly in RouterOS if supported by your version.
 
 ---
 
-## 🖥️ Серверная часть: `force_update.php`
+## 🖥 Server-Side Component: The Upgrade Proxy
 
-Для контроля обновлений используется простой PHP-скрипт, размещённый на вашем веб-сервере. Он принимает GET-параметр `new_version` от MikroTik и возвращает `ENABLED` или `DISABLED` — в зависимости от того, входит ли запрошенная версия в «белый список».
+The core of this system is a pair of lightweight PHP proxy scripts (`ros7-upgrade.php` and `ros6-upgrade.php`) hosted on your web server. They intercept update requests from MikroTik devices and handle them intelligently.
 
-### Как это работает
+### How the Proxy Algorithm Works
 
-1. MikroTik на шаге 3.5 скачивает `force_update.php?new_version=<версия>` через `/tool fetch`
-2. PHP-скрипт читает параметр `new_version`
-3. Если версия есть в массиве `$allowedVersions` → возвращает `ENABLED`
-4. Во всех остальных случаях (версия не передана, не в списке, ошибка) → возвращает `DISABLED`
+1. **Intercepts Request:** Receives requests like `/NEWEST7.stable?version=7.19.2`.
+2. **Spoofs User-Agent:** Forwards the request to `upgrade.mikrotik.com` using `User-Agent: RouterOS <version>` to bypass CDN/WAF bot protection.
+3. **Strict Timeouts:** Uses aggressive timeouts (`CONNECT_TIMEOUT=2s`, `TOTAL_TIMEOUT=3s`). If the upstream is slow, it fails fast to prevent the MikroTik device from dropping the connection.
+4. **Fallback Chain:** If the upstream request fails, it instantly returns a valid response from:
+   - **Tier 1:** Local cache (`/routeros/version.cache`) from the last successful fetch.
+   - **Tier 2:** Local static files (e.g., `NEWEST7.stable`, `LATEST.6`).
+   - **Tier 3:** Hardcoded default values.
 
-MikroTik сравнивает содержимое ответа со строкой `ENABLED` и либо продолжает обновление, либо прерывает его.
+### Installation on the Server
 
-### Обновление белого списка версий
+1. Place `ros7-upgrade.php` and `ros6-upgrade.php` in your web directory (e.g., `/var/www/html/`).
+2. Create the cache directory and set permissions:
+   ```bash
+   mkdir -p /var/www/html/routeros
+   chown www-data:www-data /var/www/html/routeros
+   chmod 755 /var/www/html/routeros
+   ```
+3. Ensure PHP has permission to make outbound network requests (e.g., on RHEL/CentOS: `setsebool -P httpd_can_network_connect on`).
+4. needed php-curl
 
-Если вы решили, что пора обновляться - отредактируйте force_update.php.
+### Policy Check (`force_update.php`)
 
-```php
+If you want strict, centralized control over *which* versions are allowed to install, you can add the `force_update.php` script. 
 
-// Предустановленный массив разрешённых версий для обновления, нужно как минимум 3 записи
-$allowedVersions = [
-    '6.49.22',  // Текущая версия ROS 6
-    '7.24.4',   // Текущая версия стабильной ветки ROS 7
-    '7.23.7',  // Текущая версия long-term ветки ROS 7
-];
+The MikroTik script will send a GET request:
+`GET http://YOUR_SERVER_NAME/routeros/force_update.php?new_version=7.15.1`
 
+The PHP script checks the version against an `$allowedVersions` array and returns either `ENABLED` or `DISABLED`. If the response is anything other than `ENABLED`, the MikroTik script aborts the update.
+
+---
+
+## 📁 Backup Location
+
+The script automatically detects the storage medium:
+- If a `flash` directory exists → Backups are saved to `/flash/auto-backup-<SERIAL>-<YYYY-MM-DD>.backup` and `.rsc`.
+- Otherwise → Backups are saved to the root directory `/`.
+
+Old backups matching the `auto-backup-` prefix are automatically deleted before new ones are created to save space.
+
+## 🔄 Update Logic
+
+### RouterOS Update
+The update proceeds **only if**:
+1. `/system package update check-for-updates` returns `"New version is available"`.
+2. *(If configured)* The external policy server returns `"ENABLED"`.
+
+Once confirmed, the script:
+1. Creates the reboot scheduler (`BKPUPD-REBOOT`) to run on `startup` with a 3-minute delay.
+2. Executes `/system backup save` and `/export`.
+3. Executes `/system package update install`.
+4. The device reboots.
+
+### RouterBOARD Firmware Update
+After the RouterOS update reboot, the `BKPUPD-REBOOT` scheduler triggers the script again. It then:
+1. Checks if `current-firmware` differs from `upgrade-firmware`.
+2. If yes, executes `/system routerboard upgrade`.
+3. Reboots the device a second time to apply the firmware.
+4. Cleans up the `BKPUPD- it removes the `BKPUPD-REBOOT` scheduler, leaving the system clean.
+
+## 📝 Logs
+
+All actions are logged to the system log with the `BackupAndUpdate` tag. You can filter them in Winbox or CLI:
+```routeros
+/log print where message~"BackupAndUpdate"
 ```
 
-### Установка на сервер
+## 🐛 Known Limitations
 
-1. Разместите файл по пути force_update.php на вашем веб-сервере (Apache/Nginx + PHP 7.4+).
-2. Убедитесь, что URL доступен из интернета или из локальной сети, где находятся MikroTik-устройства.
-3. Пропишите этот URL в переменной `policyCheckUrl` в скрипте MikroTik.
-
-Это даёт вам **централизованный контроль** над тем, какие устройства и до какой версии будут обновляться. Например, можно:
-
-- Запретить обновление, пока не протестируете новую версию на пилотной группе
-- Разрешить разные версии для разных сегментов (сделав отдельные PHP-скрипты)
-- Аварийно отключить обновления (вернуть пустой массив)
-
-- Ну или добавить любую другую логику на ваш выбор, ориентируясь на ip-адрес устройства. 
-
-## 📁 Расположение бэкапов
-
-Скрипт автоматически определяет наличие директории `flash/`:
-- Если доступна → `/flash/auto-backup-<SERIAL>-<YYYY-MM-DD>.backup` и `.rsc`
-- Иначе → в корне файловой системы
-
-Старые бэкапы с префиксом `auto-backup-` удаляются автоматически перед созданием нового.
-
-## 🔄 Логика обновления
-
-### Обновление RouterOS
-
-Обновление выполняется только если:
-1. `check-for-updates` сообщает `New version is available`
-2. Внешний сервер вернул `ENABLED`
-
-После создания бэкапа скрипт:
-- Создаёт планировщик `BKPUPD-REBOOT` на `startup` с задержкой 3 минуты
-- Запускает `/system package update install`
-- Устройство перезагружается
-
-### Обновление прошивки RouterBOARD
-
-После перезагрузки (при обновлении прошивки), по расписанию BKPUPD-REBOOT
-
-- Если `current-firmware != upgrade-firmware`:
-- Выполняется `/system routerboard upgrade`
-- Устройство перезагружается
-
-## 📝 Логи
-
-Все действия записываются в системный лог с тегом `BackupAndUpdate`:
-
-## 🐛 Известные ограничения
-
-- Задержка 15 секунд после `check-for-updates` (можно увеличить при медленном интернете)
-- Таймаут ожидания бэкапа — 60 секунд
-- `force_update.php` проверяет только точное совпадение версии (без wildcard)
+- A hardcoded `15s` delay is used after `check-for-updates` to allow the router to fetch data (increase this if your internet connection is very slow).
+- Backup file creation has a `60s` timeout watchdog.
+- The `force_update.php` checks for **exact** version string matches (no wildcards).
+- The proxy cache key is `filename_version` (e.g., `NEWEST7.stable_7.19.2`), ensuring different client versions can be cached independently if the upstream responds differently.

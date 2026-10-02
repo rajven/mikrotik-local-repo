@@ -13,7 +13,7 @@
 :local flashAvailable false
 :local Httpmode "http"
 
-# URL сервера для проверки
+# Server URL for policy check
 :local policyCheckUrl "http://SERVER_NAME/routeros/force_update.php"
 
 :local osUpdateNeeded false
@@ -57,7 +57,7 @@
 :do {
     :log info "BackupAndUpdate: Step 2 start"
 
-    # Проверяем мажорную версию ROS, чтобы установить mode=http только для ROS 7
+    # Check major ROS version to set mode=http only for ROS 7
     :local rosVersion [/system resource get version]
     :local majorVersion [:pick $rosVersion 0 1]
 
@@ -139,16 +139,16 @@
         :local checkFile "force_update_check.txt"
         :local serverResponse "DISABLED"
 
-        # Удаляем старый файл проверки, если он остался
+        # Delete old check file if it still exists
         :foreach fileId in=[/file find name=$checkFile] do={
             /file remove $fileId
         }
 
-        # Скачиваем ответ сервера
+        # Download server response
         /tool fetch url=$checkUrl mode=http dst-path=$checkFile
         :delay 2s
 
-        # Читаем содержимое файла
+        # Read file contents
         :local fileId [/file find name=$checkFile]
         :if ([:len $fileId] > 0) do={
             :set serverResponse [/file get $fileId contents]
@@ -243,7 +243,7 @@
             :log error "BackupAndUpdate: failed to generate backup name"
         }
 
-        # Remove old backups (все файлы с префиксом backup- в нужной директории)
+        # Remove old backups (all files with prefix auto-backup- in the target directory)
         :log info "BackupAndUpdate: removing old backup files"
         :foreach fileId in=[/file find] do={
             :local fileName [/file get $fileId name]
