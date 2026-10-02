@@ -1,0 +1,1 @@
+1 */3 * * * root /usr/local/bin/sync_mikrotik_repo.sh >/dev/null 2>&1 && chown www-data:www-data -R /var/www/html
