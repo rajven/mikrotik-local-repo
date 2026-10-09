@@ -132,7 +132,7 @@
 }
 
 # ============================================================
-# Step 3.5: Check update policy on server
+# Step 3.5: Check update policy on server (UPDATED with URL encoding)
 # ============================================================
 
 :if ($osUpdateNeeded = true) do={
@@ -231,11 +231,12 @@
         }
 
         # ============================================================
-        # Generate backup name from Serial Number and Date
+        # Generate backup name from Serial Number, Version and Date
         # ============================================================
 
         :do {
-            :log info ("BackupAndUpdate: device serial: " . $deviceSerial)
+            :local serial [/system routerboard get serial-number]
+            :log info ("BackupAndUpdate: device serial: " . $serial)
 
             :local dateRaw [/system clock get date]
             :local day [:pick $dateRaw 4 6]
@@ -256,7 +257,13 @@
             :if ($monthStr = "nov") do={ :set monthNum "11" }
             :if ($monthStr = "dec") do={ :set monthNum "12" }
 
-            :set backupName ( "auto-backup-" . $deviceSerial . "-" . $year . "-" . $monthNum . "-" . $day)
+            # Формируем имя с версией прошивки. Если currentVersion пустой (ошибка в Step 2), используем "unknown"
+            :local safeVersion "unknown"
+            :if ([:len $currentVersion] > 0) do={
+                :set safeVersion $currentVersion
+            }
+
+            :set backupName ( "auto-backup-" . $serial . "-" . $safeVersion . "-" . $year . "-" . $monthNum . "-" . $day)
             :set backupFullPath ($backupPath . $backupName)
             :log info ("BackupAndUpdate: backup full name: " . $backupFullPath)
         } on-error={
@@ -265,13 +272,23 @@
 
         # Remove old backups (all files with prefix auto-backup- in the target directory)
         :log info "BackupAndUpdate: removing old backup files"
+        :local prefixLen ([:len $backupPath] + 12)
+        :local prefix ($backupPath . "auto-backup-")
+        :log info ("BackupAndUpdate: looking for prefix: '" . $prefix . "' (len=" . $prefixLen . ")")
+        
         :foreach fileId in=[/file find] do={
             :local fileName [/file get $fileId name]
-            :if ([:pick $fileName 0 ([:len $backupPath] + 7)] = ($backupPath . "auto-backup-")) do={
-                :if (([:pick $fileName ([:len $fileName] - 7) [:len $fileName]] = ".backup") || \
-                     ([:pick $fileName ([:len $fileName] - 4) [:len $fileName]] = ".rsc")) do={
-                    /file remove $fileId
-                    :log info ("BackupAndUpdate: removed old file: " . $fileName)
+            :local fileLen [:len $fileName]
+            
+            # check that the file name starts with the required prefix.
+            :if ($fileLen >= $prefixLen) do={
+                :if ([:pick $fileName 0 $prefixLen] = $prefix) do={
+                    # Проверяем расширение: .backup (7 символов) или .rsc (4 символа)
+                    :if (([:pick $fileName ($fileLen - 7) $fileLen] = ".backup") || \
+                         ([:pick $fileName ($fileLen - 4) $fileLen] = ".rsc")) do={
+                        /file remove $fileId
+                        :log info ("BackupAndUpdate: removed old file: " . $fileName)
+                    }
                 }
             }
         }

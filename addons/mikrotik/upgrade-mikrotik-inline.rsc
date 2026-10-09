@@ -133,7 +133,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n}\
     \n\
     \n# ============================================================\
-    \n# Step 3.5: Check update policy on server\
+    \n# Step 3.5: Check update policy on server (UPDATED with URL encoding)\
     \n# ============================================================\
     \n\
     \n:if (\$osUpdateNeeded = true) do={\
@@ -232,11 +232,12 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n        }\
     \n\
     \n        # ============================================================\
-    \n        # Generate backup name from Serial Number and Date\
+    \n        # Generate backup name from Serial Number, Version and Date\
     \n        # ============================================================\
     \n\
     \n        :do {\
-    \n            :log info (\"BackupAndUpdate: device serial: \" . \$deviceSerial)\
+    \n            :local serial [/system routerboard get serial-number]\
+    \n            :log info (\"BackupAndUpdate: device serial: \" . \$serial)\
     \n\
     \n            :local dateRaw [/system clock get date]\
     \n            :local day [:pick \$dateRaw 4 6]\
@@ -257,7 +258,14 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n            :if (\$monthStr = \"nov\") do={ :set monthNum \"11\" }\
     \n            :if (\$monthStr = \"dec\") do={ :set monthNum \"12\" }\
     \n\
-    \n            :set backupName ( \"auto-backup-\" . \$deviceSerial . \"-\" . \$year . \"-\" . \$monthNum . \"-\" . \$day)\
+    \n            # \D0\A4\D0\BE\D1\80\D0\BC\D0\B8\D1\80\D1\83\D0\B5\D0\BC \D0\B8\D0\BC\D1\8F \D1\81 \D0\B2\D0\B5\D1\80\D1\81\D0\B8\D0\B5\D0\B9 \D0\BF\D1\80\D0\BE\D1\88\D0\B8\D0\B2\D0\BA\D0\B8. \D0\95\D1\81\D0\BB\D0\B8 currentVersion \D0\BF\D1\83\D1\81\D1\82\D0\BE\D0\B9 (\D0\BE\D1\88\D0\B8\D0\B1\D0\BA\D0\B0 \D0\B2 Step 2), \D0\B8\
+    \D1\81\D0\BF\D0\BE\D0\BB\D1\8C\D0\B7\D1\83\D0\B5\D0\BC \"unknown\"\
+    \n            :local safeVersion \"unknown\"\
+    \n            :if ([:len \$currentVersion] > 0) do={\
+    \n                :set safeVersion \$currentVersion\
+    \n            }\
+    \n\
+    \n            :set backupName ( \"auto-backup-\" . \$serial . \"-\" . \$safeVersion . \"-\" . \$year . \"-\" . \$monthNum . \"-\" . \$day)\
     \n            :set backupFullPath (\$backupPath . \$backupName)\
     \n            :log info (\"BackupAndUpdate: backup full name: \" . \$backupFullPath)\
     \n        } on-error={\
@@ -266,13 +274,23 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n\
     \n        # Remove old backups (all files with prefix auto-backup- in the target directory)\
     \n        :log info \"BackupAndUpdate: removing old backup files\"\
+    \n        :local prefixLen ([:len \$backupPath] + 12)\
+    \n        :local prefix (\$backupPath . \"auto-backup-\")\
+    \n        :log info (\"BackupAndUpdate: looking for prefix: '\" . \$prefix . \"' (len=\" . \$prefixLen . \")\")\
+    \n        \
     \n        :foreach fileId in=[/file find] do={\
     \n            :local fileName [/file get \$fileId name]\
-    \n            :if ([:pick \$fileName 0 ([:len \$backupPath] + 7)] = (\$backupPath . \"auto-backup-\")) do={\
-    \n                :if (([:pick \$fileName ([:len \$fileName] - 7) [:len \$fileName]] = \".backup\") || \\\
-    \n                     ([:pick \$fileName ([:len \$fileName] - 4) [:len \$fileName]] = \".rsc\")) do={\
-    \n                    /file remove \$fileId\
-    \n                    :log info (\"BackupAndUpdate: removed old file: \" . \$fileName)\
+    \n            :local fileLen [:len \$fileName]\
+    \n            \
+    \n            # check that the file name starts with the required prefix.\
+    \n            :if (\$fileLen >= \$prefixLen) do={\
+    \n                :if ([:pick \$fileName 0 \$prefixLen] = \$prefix) do={\
+    \n                    # \D0\9F\D1\80\D0\BE\D0\B2\D0\B5\D1\80\D1\8F\D0\B5\D0\BC \D1\80\D0\B0\D1\81\D1\88\D0\B8\D1\80\D0\B5\D0\BD\D0\B8\D0\B5: .backup (7 \D1\81\D0\B8\D0\BC\D0\B2\D0\BE\D0\BB\D0\BE\D0\B2) \D0\B8\D0\BB\D0\B8 .rsc (4 \D1\81\D0\B8\D0\BC\D0\B2\D0\BE\D0\BB\D0\B0)\
+    \n                    :if (([:pick \$fileName (\$fileLen - 7) \$fileLen] = \".backup\") || \\\
+    \n                         ([:pick \$fileName (\$fileLen - 4) \$fileLen] = \".rsc\")) do={\
+    \n                        /file remove \$fileId\
+    \n                        :log info (\"BackupAndUpdate: removed old file: \" . \$fileName)\
+    \n                    }\
     \n                }\
     \n            }\
     \n        }\
