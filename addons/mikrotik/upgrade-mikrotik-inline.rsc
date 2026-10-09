@@ -1,4 +1,5 @@
-add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="# ============================================================\
+/system script
+add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="# ============================================================\
     \n# BackupAndUpdate (ROS6/ROS7 compatible + Server Policy Check)\
     \n# ============================================================\
     \n\
@@ -25,6 +26,10 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n:local latestVersion \"\"\
     \n\
     \n:log info \"BackupAndUpdate: === SCRIPT STARTED ===\"\
+    \n\
+    \n# obtain the device model and serial number.\
+    \n:local rawModel [/system resource get board-name]\
+    \n:local deviceSerial [/system routerboard get serial-number]\
     \n\
     \n# ============================================================\
     \n# Step 1: Daily scheduler\
@@ -128,14 +133,30 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n}\
     \n\
     \n# ============================================================\
-    \n# Step 3.5: Check update policy on server (NEW)\
+    \n# Step 3.5: Check update policy on server\
     \n# ============================================================\
     \n\
     \n:if (\$osUpdateNeeded = true) do={\
     \n    :do {\
     \n        :log info \"BackupAndUpdate: Step 3.5 start - checking server policy\"\
     \n\
-    \n        :local checkUrl (\$policyCheckUrl . \"\?new_version=\" . \$latestVersion)\
+    \n        :log info (\"BackupAndUpdate: device serial: \" . \$deviceSerial)\
+    \n\
+    \n        # Encode spaces in the model name for a secure URL (%20).\
+    \n        :local safeModel \"\"\
+    \n        :for i from=0 to=([:len \$rawModel] - 1) do={\
+    \n            :local char [:pick \$rawModel \$i (\$i + 1)]\
+    \n            :if (\$char = \" \") do={\
+    \n                :set safeModel (\$safeModel . \"%20\")\
+    \n            } else={\
+    \n                :set safeModel (\$safeModel . \$char)\
+    \n            }\
+    \n        }\
+    \n\
+    \n        :log info (\"BackupAndUpdate: device model: \" . \$rawModel)\
+    \n\
+    \n        # form a URL with three parameters: new_version, model, serial\
+    \n        :local checkUrl (\$policyCheckUrl . \"\?new_version=\" . \$latestVersion . \"&model=\" . \$safeModel . \"&serial=\" . \$deviceSerial)\
     \n        :local checkFile \"force_update_check.txt\"\
     \n        :local serverResponse \"DISABLED\"\
     \n\
@@ -145,6 +166,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n        }\
     \n\
     \n        # Download server response\
+    \n        :log info (\"BackupAndUpdate: fetching policy from: \" . \$checkUrl)\
     \n        /tool fetch url=\$checkUrl mode=http dst-path=\$checkFile\
     \n        :delay 2s\
     \n\
@@ -214,8 +236,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n        # ============================================================\
     \n\
     \n        :do {\
-    \n            :local serial [/system routerboard get serial-number]\
-    \n            :log info (\"BackupAndUpdate: device serial: \" . \$serial)\
+    \n            :log info (\"BackupAndUpdate: device serial: \" . \$deviceSerial)\
     \n\
     \n            :local dateRaw [/system clock get date]\
     \n            :local day [:pick \$dateRaw 4 6]\
@@ -236,7 +257,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n            :if (\$monthStr = \"nov\") do={ :set monthNum \"11\" }\
     \n            :if (\$monthStr = \"dec\") do={ :set monthNum \"12\" }\
     \n\
-    \n            :set backupName ( \"auto-backup-\" . \$serial . \"-\" . \$year . \"-\" . \$monthNum . \"-\" . \$day)\
+    \n            :set backupName ( \"auto-backup-\" . \$deviceSerial . \"-\" . \$year . \"-\" . \$monthNum . \"-\" . \$day)\
     \n            :set backupFullPath (\$backupPath . \$backupName)\
     \n            :log info (\"BackupAndUpdate: backup full name: \" . \$backupFullPath)\
     \n        } on-error={\
@@ -344,4 +365,5 @@ add dont-require-permissions=no name=BackupAndUpdate owner=admin policy=ftp,rebo
     \n    /system scheduler remove \$schedulerId\
     \n}\
     \n\
-    \n:log info \"BackupAndUpdate: === SCRIPT FINISHED ===\""
+    \n:log info \"BackupAndUpdate: === SCRIPT FINISHED ===\"\
+    \n"

@@ -26,6 +26,10 @@
 
 :log info "BackupAndUpdate: === SCRIPT STARTED ==="
 
+# obtain the device model and serial number.
+:local rawModel [/system resource get board-name]
+:local deviceSerial [/system routerboard get serial-number]
+
 # ============================================================
 # Step 1: Daily scheduler
 # ============================================================
@@ -128,14 +132,30 @@
 }
 
 # ============================================================
-# Step 3.5: Check update policy on server (NEW)
+# Step 3.5: Check update policy on server
 # ============================================================
 
 :if ($osUpdateNeeded = true) do={
     :do {
         :log info "BackupAndUpdate: Step 3.5 start - checking server policy"
 
-        :local checkUrl ($policyCheckUrl . "?new_version=" . $latestVersion)
+        :log info ("BackupAndUpdate: device serial: " . $deviceSerial)
+
+        # Encode spaces in the model name for a secure URL (%20).
+        :local safeModel ""
+        :for i from=0 to=([:len $rawModel] - 1) do={
+            :local char [:pick $rawModel $i ($i + 1)]
+            :if ($char = " ") do={
+                :set safeModel ($safeModel . "%20")
+            } else={
+                :set safeModel ($safeModel . $char)
+            }
+        }
+
+        :log info ("BackupAndUpdate: device model: " . $rawModel)
+
+        # form a URL with three parameters: new_version, model, serial
+        :local checkUrl ($policyCheckUrl . "?new_version=" . $latestVersion . "&model=" . $safeModel . "&serial=" . $deviceSerial)
         :local checkFile "force_update_check.txt"
         :local serverResponse "DISABLED"
 
@@ -145,6 +165,7 @@
         }
 
         # Download server response
+        :log info ("BackupAndUpdate: fetching policy from: " . $checkUrl)
         /tool fetch url=$checkUrl mode=http dst-path=$checkFile
         :delay 2s
 
@@ -214,8 +235,7 @@
         # ============================================================
 
         :do {
-            :local serial [/system routerboard get serial-number]
-            :log info ("BackupAndUpdate: device serial: " . $serial)
+            :log info ("BackupAndUpdate: device serial: " . $deviceSerial)
 
             :local dateRaw [/system clock get date]
             :local day [:pick $dateRaw 4 6]
@@ -236,7 +256,7 @@
             :if ($monthStr = "nov") do={ :set monthNum "11" }
             :if ($monthStr = "dec") do={ :set monthNum "12" }
 
-            :set backupName ( "auto-backup-" . $serial . "-" . $year . "-" . $monthNum . "-" . $day)
+            :set backupName ( "auto-backup-" . $deviceSerial . "-" . $year . "-" . $monthNum . "-" . $day)
             :set backupFullPath ($backupPath . $backupName)
             :log info ("BackupAndUpdate: backup full name: " . $backupFullPath)
         } on-error={
