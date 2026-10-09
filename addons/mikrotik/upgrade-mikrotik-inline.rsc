@@ -28,7 +28,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n\
     \n:log info \"BackupAndUpdate: === SCRIPT STARTED ===\"\
     \n\
-    \n# obtain the device model and serial number.\
+    \n# Obtain the device model and serial number.\
     \n:local rawModel [/system resource get board-name]\
     \n:local deviceSerial [/system routerboard get serial-number]\
     \n\
@@ -78,7 +78,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n    }\
     \n\
     \n    /system package update set channel=\$updateChannel\
-    \n    :log info \"BackupAndUpdate: channel set \$updateChannel\"\
+    \n    :log info (\"BackupAndUpdate: channel set to \" . \$updateChannel)\
     \n\
     \n    /system package update check-for-updates\
     \n    :log info \"BackupAndUpdate: check started, waiting 15s\"\
@@ -134,7 +134,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n}\
     \n\
     \n# ============================================================\
-    \n# Step 3.5: Check update policy on server (UPDATED with URL encoding)\
+    \n# Step 3.5: Check update policy on server\
     \n# ============================================================\
     \n\
     \n:if (\$osUpdateNeeded = true) do={\
@@ -156,7 +156,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n\
     \n        :log info (\"BackupAndUpdate: device model: \" . \$rawModel)\
     \n\
-    \n        # form a URL with three parameters: new_version, model, serial\
+    \n        # Form a URL with three parameters: new_version, model, serial\
     \n        :local checkUrl (\$policyCheckUrl . \"\?new_version=\" . \$latestVersion . \"&model=\" . \$safeModel . \"&serial=\" . \$deviceSerial)\
     \n        :local checkFile \"force_update_check.txt\"\
     \n        :local serverResponse \"DISABLED\"\
@@ -259,8 +259,7 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n            :if (\$monthStr = \"nov\") do={ :set monthNum \"11\" }\
     \n            :if (\$monthStr = \"dec\") do={ :set monthNum \"12\" }\
     \n\
-    \n            # \D0\A4\D0\BE\D1\80\D0\BC\D0\B8\D1\80\D1\83\D0\B5\D0\BC \D0\B8\D0\BC\D1\8F \D1\81 \D0\B2\D0\B5\D1\80\D1\81\D0\B8\D0\B5\D0\B9 \D0\BF\D1\80\D0\BE\D1\88\D0\B8\D0\B2\D0\BA\D0\B8. \D0\95\D1\81\D0\BB\D0\B8 currentVersion \D0\BF\D1\83\D1\81\D1\82\D0\BE\D0\B9 (\D0\BE\D1\88\D0\B8\D0\B1\D0\BA\D0\B0 \D0\B2 Step 2), \D0\B8\
-    \D1\81\D0\BF\D0\BE\D0\BB\D1\8C\D0\B7\D1\83\D0\B5\D0\BC \"unknown\"\
+    \n            # Form the name with the firmware version. If currentVersion is empty (error in Step 2), use \"unknown\"\
     \n            :local safeVersion \"unknown\"\
     \n            :if ([:len \$currentVersion] > 0) do={\
     \n                :set safeVersion \$currentVersion\
@@ -283,10 +282,10 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n            :local fileName [/file get \$fileId name]\
     \n            :local fileLen [:len \$fileName]\
     \n            \
-    \n            # check that the file name starts with the required prefix.\
+    \n            # Check that the file name starts with the required prefix.\
     \n            :if (\$fileLen >= \$prefixLen) do={\
     \n                :if ([:pick \$fileName 0 \$prefixLen] = \$prefix) do={\
-    \n                    # \D0\9F\D1\80\D0\BE\D0\B2\D0\B5\D1\80\D1\8F\D0\B5\D0\BC \D1\80\D0\B0\D1\81\D1\88\D0\B8\D1\80\D0\B5\D0\BD\D0\B8\D0\B5: .backup (7 \D1\81\D0\B8\D0\BC\D0\B2\D0\BE\D0\BB\D0\BE\D0\B2) \D0\B8\D0\BB\D0\B8 .rsc (4 \D1\81\D0\B8\D0\BC\D0\B2\D0\BE\D0\BB\D0\B0)\
+    \n                    # Check the extension: .backup (7 chars) or .rsc (4 chars)\
     \n                    :if (([:pick \$fileName (\$fileLen - 7) \$fileLen] = \".backup\") || \\\
     \n                         ([:pick \$fileName (\$fileLen - 4) \$fileLen] = \".rsc\")) do={\
     \n                        /file remove \$fileId\
@@ -384,5 +383,4 @@ add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,rebo
     \n    /system scheduler remove \$schedulerId\
     \n}\
     \n\
-    \n:log info \"BackupAndUpdate: === SCRIPT FINISHED ===\"\
-    \n"
+    \n:log info \"BackupAndUpdate: === SCRIPT FINISHED ===\""

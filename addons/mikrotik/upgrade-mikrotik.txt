@@ -26,7 +26,7 @@
 
 :log info "BackupAndUpdate: === SCRIPT STARTED ==="
 
-# obtain the device model and serial number.
+# Obtain the device model and serial number.
 :local rawModel [/system resource get board-name]
 :local deviceSerial [/system routerboard get serial-number]
 
@@ -76,7 +76,7 @@
     }
 
     /system package update set channel=$updateChannel
-    :log info "BackupAndUpdate: channel set $updateChannel"
+    :log info ("BackupAndUpdate: channel set to " . $updateChannel)
 
     /system package update check-for-updates
     :log info "BackupAndUpdate: check started, waiting 15s"
@@ -132,7 +132,7 @@
 }
 
 # ============================================================
-# Step 3.5: Check update policy on server (UPDATED with URL encoding)
+# Step 3.5: Check update policy on server
 # ============================================================
 
 :if ($osUpdateNeeded = true) do={
@@ -154,7 +154,7 @@
 
         :log info ("BackupAndUpdate: device model: " . $rawModel)
 
-        # form a URL with three parameters: new_version, model, serial
+        # Form a URL with three parameters: new_version, model, serial
         :local checkUrl ($policyCheckUrl . "?new_version=" . $latestVersion . "&model=" . $safeModel . "&serial=" . $deviceSerial)
         :local checkFile "force_update_check.txt"
         :local serverResponse "DISABLED"
@@ -257,7 +257,7 @@
             :if ($monthStr = "nov") do={ :set monthNum "11" }
             :if ($monthStr = "dec") do={ :set monthNum "12" }
 
-            # Формируем имя с версией прошивки. Если currentVersion пустой (ошибка в Step 2), используем "unknown"
+            # Form the name with the firmware version. If currentVersion is empty (error in Step 2), use "unknown"
             :local safeVersion "unknown"
             :if ([:len $currentVersion] > 0) do={
                 :set safeVersion $currentVersion
@@ -280,10 +280,10 @@
             :local fileName [/file get $fileId name]
             :local fileLen [:len $fileName]
             
-            # check that the file name starts with the required prefix.
+            # Check that the file name starts with the required prefix.
             :if ($fileLen >= $prefixLen) do={
                 :if ([:pick $fileName 0 $prefixLen] = $prefix) do={
-                    # Проверяем расширение: .backup (7 символов) или .rsc (4 символа)
+                    # Check the extension: .backup (7 chars) or .rsc (4 chars)
                     :if (([:pick $fileName ($fileLen - 7) $fileLen] = ".backup") || \
                          ([:pick $fileName ($fileLen - 4) $fileLen] = ".rsc")) do={
                         /file remove $fileId
