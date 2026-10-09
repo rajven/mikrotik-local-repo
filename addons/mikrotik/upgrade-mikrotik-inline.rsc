@@ -1,4 +1,5 @@
 /system script
+remove BackupAndUpdate
 add dont-require-permissions=no name=BackupAndUpdate owner=roman policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="# ============================================================\
     \n# BackupAndUpdate (ROS6/ROS7 compatible + Server Policy Check)\
     \n# ============================================================\
