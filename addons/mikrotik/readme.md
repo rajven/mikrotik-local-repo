@@ -32,6 +32,12 @@ The script is provided in two formats:
 * `upgrade-mikrotik-inline.rsc` – For direct copy-paste into the terminal (may lag on devices with weak CPUs).
 * `upgrade-mikrotik.txt` – For manual creation via Winbox or WebFig.
 
+Variations:
+
+* upgrade-mikrotik-ch.txt - the update channel is not specified, the current one is used
+* upgrade-mikrotik-lts.txt - the update channel is set to long-term
+* upgrade-mikrotik.txt - the update channel is set to stable
+
 ## ⚙️ MikroTik Configuration
 
 Before using the script, edit the variables at the top of the file to match your environment:
