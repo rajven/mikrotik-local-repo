@@ -1,35 +1,29 @@
 <?php
 /**
- * Proxy for upgrade.mikrotik.com
- *
- * Cache key:   "<file>_<version>"   (e.g. "NEWESTa7.stable_7.24.4")
- * Cache line:  "<file>_<version>=<value>|<timestamp>"
- *
- * Policy:
- *   - Если в кэше есть запись для (file, version) — отдаём её, upstream не трогаем.
- *   - Иначе — идём в upstream, при валидном ответе сохраняем и отдаём.
- *   - Если upstream недоступен — local-fallback файл, затем хардкод.
+ * Proxy for upgrade.mikrotik.com ROS 7 branch
  */
 
-const UPSTREAM_BASE   = 'https://upgrade.mikrotik.com/routeros/';
-const CONNECT_TIMEOUT = 2;
-const TOTAL_TIMEOUT   = 3;
+$CFG = require __DIR__ . '/mt_proxy_config.php';
+$V7  = $CFG['v7'];
 
-const CACHE_FILE = __DIR__ . '/routeros/ros7.version.cache';
+define('UPSTREAM_BASE',   $CFG['upstream_base']);
+define('CONNECT_TIMEOUT', $CFG['connect_timeout']);
+define('TOTAL_TIMEOUT',   $CFG['total_timeout']);
 
-const LOCAL_STABLE_FILE    = __DIR__ . '/NEWEST7.stable';
-const LOCAL_LONGTERM_FILE  = __DIR__ . '/NEWEST7.stable';
-const LOCAL_STABLE_AFILE   = __DIR__ . '/NEWESTa7.stable';
-const LOCAL_LONGTERM_AFILE = __DIR__ . '/NEWESTa7.long-term';
+define('CACHE_FILE', $V7['cache_file']);
+define('LOG_PREFIX', $V7['log_prefix']);
+define('DEFAULT_VERSION', $V7['default_version']);
+define('USER_AGENT_PREFIX', $V7['user_agent']);
 
-$FALLBACKS = [
-    'NEWEST7.stable'     => "7.12.1 1700221125\n",
-    'NEWEST7.long-term'  => "7.12.1 1700221125\n",
-    'NEWESTa7.stable'    => "7.24.5 1790691687\n",
-    'NEWESTa7.long-term' => "7.23.8 1791452776\n",
-];
+define('LOCAL_STABLE_FILE',         $V7['local_stable']);
+define('LOCAL_LONGTERM_FILE',       $V7['local_longterm']);
+define('LOCAL_STABLE_AFILE',        $V7['local_stable_afile']);
+define('LOCAL_LONGTERM_AFILE',      $V7['local_longterm_afile']);
+
+$FALLBACKS = $CFG['fallbacks'];
 
 /* ---------------- helpers ---------------- */
+/* readLocalFallback, readCache, writeCacheIfChanged, serve — идентичны v6 */
 
 function readLocalFallback(string $path): ?string
 {
@@ -44,9 +38,6 @@ function readLocalFallback(string $path): ?string
     return $data === '' ? null : $data . "\n";
 }
 
-/**
- * Возвращает значение из кэша для ключа или null.
- */
 function readCache(string $key): ?string
 {
     if (!is_file(CACHE_FILE) || !is_readable(CACHE_FILE)) {
@@ -64,7 +55,6 @@ function readCache(string $key): ?string
         if (trim($parts[0]) !== $key) {
             continue;
         }
-        // Формат значения: "value|timestamp"
         $valueParts = explode('|', trim($parts[1]), 2);
         if (count($valueParts) !== 2) {
             continue;
@@ -75,16 +65,6 @@ function readCache(string $key): ?string
     return null;
 }
 
-/**
- * Атомарно пишет значение в кэш, только если:
- *   - записи для ключа ещё нет, ИЛИ
- *   - существующее значение отличается.
- *
- * Чтение и запись — под одним flock(LOCK_EX), поэтому между
- * проверкой и записью никто не вклинится.
- *
- * @return bool true — записали, false — не потребовалось (уже есть такое же)
- */
 function writeCacheIfChanged(string $key, string $value): bool
 {
     $dir = dirname(CACHE_FILE);
@@ -117,7 +97,6 @@ function writeCacheIfChanged(string $key, string $value): bool
             );
         }
 
-        // Ищем ключ и заодно проверяем текущее значение.
         $lines        = [];
         $found        = false;
         $currentValue = null;
@@ -126,28 +105,23 @@ function writeCacheIfChanged(string $key, string $value): bool
             $parts = explode('=', $line, 2);
             if (count($parts) === 2 && trim($parts[0]) === $key) {
                 $found = true;
-                // value|timestamp
                 $vp = explode('|', trim($parts[1]), 2);
                 if (count($vp) === 2) {
                     $currentValue = $vp[0];
                 }
-                // Пока оставляем как есть — перезапишем ниже, если нужно.
                 $lines[] = $line;
             } else {
                 $lines[] = $line;
             }
         }
 
-        // Уже есть точно такое же значение — ничего не пишем.
         if ($found && $currentValue === $value) {
             return false;
         }
 
-        // Готовим новую строку.
         $newLine = $key . '=' . $value . '|' . time();
 
         if ($found) {
-            // Заменяем существующую строку.
             foreach ($lines as $i => $line) {
                 $parts = explode('=', $line, 2);
                 if (count($parts) === 2 && trim($parts[0]) === $key) {
@@ -221,24 +195,25 @@ $file = basename($path);
 if (!isset($FALLBACKS[$file])) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
+    header('Connection: close');
     echo "Unknown resource\n";
     exit;
 }
 
-$version = $_GET['version'] ?? '7.0';
+$version = $_GET['version'] ?? DEFAULT_VERSION;
 if (!preg_match('/^\d+(\.\d+)*$/', $version)) {
-    $version = '7.0';
+    $version = DEFAULT_VERSION;
 }
 
 $cacheKey = $file . '_' . $version;
 
-/* ---------- 1. Кэш: если есть — отдаём и выходим ---------- */
+/* ---------- 1. Кэш ---------- */
 $cached = readCache($cacheKey);
 if ($cached !== null) {
     serve($cached, 'HIT');
 }
 
-/* ---------- 2. Идём в upstream ---------- */
+/* ---------- 2. Upstream ---------- */
 $query = $_SERVER['QUERY_STRING'] ?? '';
 $url   = UPSTREAM_BASE . $file . ($query !== '' ? '?' . $query : '');
 
@@ -247,7 +222,7 @@ curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER    => true,
     CURLOPT_CONNECTTIMEOUT    => CONNECT_TIMEOUT,
     CURLOPT_TIMEOUT           => TOTAL_TIMEOUT,
-    CURLOPT_USERAGENT         => 'RouterOS ' . $version,
+    CURLOPT_USERAGENT         => USER_AGENT_PREFIX . $version,
     CURLOPT_SSL_VERIFYPEER    => true,
     CURLOPT_SSL_VERIFYHOST    => 2,
     CURLOPT_ENCODING          => '',
@@ -269,17 +244,19 @@ $isValid = (
 
 if ($isValid) {
     $payload = rtrim($body, "\r\n \t") . "\n";
+
     $again = readCache($cacheKey);
     if ($again === null) {
         writeCacheIfChanged($cacheKey, $payload);
     }
+
     serve($payload, 'MISS');
 }
 
 /* ---------- 3. Upstream упал — fallback ---------- */
 error_log(sprintf(
-    '[mt-upgrade-proxy] upstream fail: file=%s version=%s url=%s http=%s curl_err=%s',
-    $file, $version, $url, $httpCode, $curlErr ?: '-'
+    '%s upstream fail: file=%s version=%s url=%s http=%s curl_err=%s',
+    LOG_PREFIX, $file, $version, $url, $httpCode, $curlErr ?: '-'
 ));
 
 $payload = resolveFallback($file, $FALLBACKS);
