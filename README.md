@@ -31,6 +31,7 @@ mikrotik-local-repo/
 ├── functions.sh               # Common functions: logging, additional files, Winbox
 ├── ros6_functions.sh          # RouterOS 6 download functions
 ├── ros7_functions.sh          # RouterOS 7 download functions
+├── ros-warmup.pl              # warming up the version cache
 └── README.md
 ```
 
@@ -41,7 +42,7 @@ Install the required packages.
 ### Apache
 
 ```bash
-apt install git php php-curl wget curl apache2 -y
+apt install git php php-curl wget curl apache2 libwww-perl liburi-perl -y
 
 a2enmod rewrite
 a2enmod headers
@@ -50,7 +51,7 @@ a2enmod headers
 ### Nginx
 
 ```bash
-apt install git php php-curl wget curl nginx php-fpm -y
+apt install git php php-curl wget curl nginx php-fpm libwww-perl liburi-perl -y
 ```
 
 Clone the repository:
@@ -63,21 +64,17 @@ cd mikrotik-local-repo
 Copy the synchronization scripts to the default working directory:
 
 ```bash
-cp sync_mikrotik_repo.sh config.sh functions.sh ros6_functions.sh ros7_functions.sh /usr/local/bin/
+cp ros-warmup.pl sync_mikrotik_repo.sh config.sh functions.sh ros6_functions.sh ros7_functions.sh /usr/local/bin/
 chmod +x /usr/local/bin/sync_mikrotik_repo.sh
-```
-
-Make the scripts executable:
-
-```bash
-chmod +x *.sh
+chmod +x /usr/local/bin/ros-warmup.pl
 ```
 
 Install the RouterOS upgrade version proxy scripts:
 
 ```bash
-cp html/ros6-upgrade.php /path/to/mirror/
-cp html/ros7-upgrade.php /path/to/mirror/
+cp html/ros6-upgrade.php /var/www/html/
+cp html/ros7-upgrade.php /var/www/html/
+cp html/force_update.php /var/www/html/
 ```
 
 > ⚠️ The `SCRIPT_DIR` variable in `sync_mikrotik_repo.sh` points to `/usr/local/bin` by default. If you install the scripts elsewhere, adjust this variable manually.
@@ -89,6 +86,9 @@ Edit **`config.sh`** according to your environment:
 ```bash
 # Local mirror path
 TARGET_DIR="/mnt/mirror/routeros"
+
+# this site url
+SITE_URL="http://localhost"
 
 # RouterOS 6 versions:
 #   6     - stable release
@@ -131,7 +131,7 @@ sudo crontab -e
 For example, run synchronization every day at 03:00:
 
 ```cron
-0 3 * * * /usr/local/bin/sync_mikrotik_repo.sh >> /var/log/mikrotik-sync.log 2>&1
+1 */3 * * * root /usr/local/bin/sync_mikrotik_repo.sh 2>/dev/null && chown www-data:www-data -R /var/www/html
 ```
 
 ## 🌐 Web server configuration
@@ -149,53 +149,68 @@ server {
     listen 80;
     server_name download.mikrotik.com upgrade.mikrotik.com;
 
-    root /mnt/mirror;   # WITHOUT /routeros — /routeros must be at the site root!
+    root /var/www/html;   # WITHOUT /routeros — /routeros must be at the site root!
 
     location / {
         autoindex on;
     }
 
-    # MikroTik upgrade script
-    location ~ ^/ros6-upgrade.php { deny all; }
-    location ~ ^/ros7-upgrade.php { deny all; }
+    #miroktik upgrade script
+    location = /ros6-upgrade.php { return 404; }
+    location = /ros7-upgrade.php { return 404; }
+    location = /force_update.php { return 404; }
 
     location ~ ^/routeros/(NEWEST6\.stable|NEWESTa6\.stable|NEWEST6\.long-term|NEWESTa6\.long-term|NEWEST6\.upgrade|NEWESTa6\.upgrade)$ {
-        include fastcgi_params;
-        fastcgi_pass unix:/run/php/php-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME /mnt/mirror/ros6-upgrade.php;
-        fastcgi_param QUERY_STRING    $query_string;
-        fastcgi_param REQUEST_URI     $request_uri;
-
-        # Disable chunked encoding on the outgoing response
-        chunked_transfer_encoding off;
-
-        # Buffer the entire PHP response so nginx can calculate Content-Length
-        # if PHP did not provide it
-        fastcgi_buffering on;
-
-        # Prevent nginx from adding or modifying encodings
-        gzip off;
-        proxy_set_header Accept-Encoding "";
-    }
+            include fastcgi_params;
+            fastcgi_pass unix:/run/php/php-fpm.sock;
+            fastcgi_param SCRIPT_FILENAME /mnt/md0/mirror/ros6-upgrade.php;
+            fastcgi_param SCRIPT_NAME     /ros6-upgrade.php;
+            fastcgi_param DOCUMENT_ROOT   /mnt/md0/mirror;
+            fastcgi_param REQUEST_URI  $request_uri;
+            fastcgi_param QUERY_STRING $query_string;
+            fastcgi_connect_timeout 2s;
+            fastcgi_send_timeout    3s;
+            fastcgi_read_timeout    3s;
+            fastcgi_buffer_size     16k;
+            fastcgi_buffers         8 16k;
+            fastcgi_busy_buffers_size 32k;
+            fastcgi_buffering on;
+            gzip off;
+        }
 
     location ~ ^/routeros/(NEWEST7\.stable|NEWESTa7\.stable|NEWEST7\.long-term|NEWESTa7\.long-term|NEWEST7\.upgrade|NEWESTa7\.upgrade)$ {
-        include fastcgi_params;
-        fastcgi_pass unix:/run/php/php-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME /mnt/mirror/ros7-upgrade.php;
-        fastcgi_param QUERY_STRING    $query_string;
-        fastcgi_param REQUEST_URI     $request_uri;
+            include fastcgi_params;
+            fastcgi_pass unix:/run/php/php-fpm.sock;
+            fastcgi_param SCRIPT_FILENAME /mnt/md0/mirror/ros7-upgrade.php;
+            fastcgi_param SCRIPT_NAME     /ros7-upgrade.php;
+            fastcgi_param DOCUMENT_ROOT   /mnt/md0/mirror;
+            fastcgi_param REQUEST_URI  $request_uri;
+            fastcgi_param QUERY_STRING $query_string;
+            fastcgi_connect_timeout 2s;
+            fastcgi_send_timeout    3s;
+            fastcgi_read_timeout    3s;
+            fastcgi_buffer_size     16k;
+            fastcgi_buffers         8 16k;
+            fastcgi_busy_buffers_size 32k;
+            fastcgi_buffering on;
+            gzip off;
+        }
 
-        # Disable chunked encoding on the outgoing response
-        chunked_transfer_encoding off;
-
-        # Buffer the entire PHP response so nginx can calculate Content-Length
-        # if PHP did not provide it
-        fastcgi_buffering on;
-
-        # Prevent nginx from adding or modifying encodings
-        gzip off;
-        proxy_set_header Accept-Encoding "";
-    }
+    location = /routeros/force_update.php {
+            include fastcgi_params;
+            fastcgi_pass unix:/run/php/php-fpm.sock;
+            fastcgi_param SCRIPT_FILENAME /mnt/md0/mirror/force_update.php;
+            fastcgi_param QUERY_STRING    $query_string;
+            fastcgi_param REQUEST_URI     $request_uri;
+            fastcgi_connect_timeout 2s;
+            fastcgi_send_timeout    3s;
+            fastcgi_read_timeout    3s;
+            fastcgi_buffer_size     16k;
+            fastcgi_buffers         8 16k;
+            fastcgi_busy_buffers_size 32k;
+            fastcgi_buffering on;
+            gzip off;
+        }
 }
 ```
 
@@ -211,13 +226,13 @@ Example configuration:
 
     RewriteEngine On
 
-    # Block direct access to the PHP backend,
-    # while allowing internal rewrites.
+    # Block direct access to the PHP backend while allowing internal rewrites.
     RewriteCond %{THE_REQUEST} \s/+ros6-upgrade\.php(?:[?\s]) [NC]
     RewriteRule ^/ros6-upgrade\.php$ - [F,L]
-
     RewriteCond %{THE_REQUEST} \s/+ros7-upgrade\.php(?:[?\s]) [NC]
     RewriteRule ^/ros7-upgrade\.php$ - [F,L]
+    RewriteCond %{THE_REQUEST} \s/+force_update\.php(?:[?\s]) [NC]
+    RewriteRule ^/force_update\.php$ - [F,L]
 
     # RouterOS 6 update URLs -> PHP backend
     RewriteRule ^/routeros/(NEWEST6\.stable|NEWESTa6\.stable|NEWEST6\.long-term|NEWESTa6\.long-term|NEWEST6\.upgrade|NEWESTa6\.upgrade)$ /ros6-upgrade.php [L]
@@ -225,18 +240,24 @@ Example configuration:
     # RouterOS 7 update URLs -> PHP backend
     RewriteRule ^/routeros/(NEWEST7\.stable|NEWESTa7\.stable|NEWEST7\.long-term|NEWESTa7\.long-term|NEWEST7\.upgrade|NEWESTa7\.upgrade)$ /ros7-upgrade.php [L]
 
+    # Update enabled?
+    RewriteRule ^/routeros/force_update.php /force_update.php [L]
+
     # Disable gzip compression for these URLs
     <IfModule mod_deflate.c>
         SetEnvIf Request_URI "^/routeros/(NEWEST6|NEWESTa6)\.(stable|long-term|upgrade)" no-gzip dont-vary
         SetEnvIf Request_URI "^/routeros/(NEWEST7|NEWESTa7)\.(stable|long-term|upgrade)" no-gzip dont-vary
+        SetEnvIf Request_URI "^/routeros/force_update.php" no-gzip dont-vary
     </IfModule>
 
     # Remove Accept-Encoding from incoming requests
     <IfModule mod_headers.c>
         SetEnvIf Request_URI "^/routeros/(NEWEST6|NEWESTa6)\.(stable|long-term|upgrade)" NO_ACCEPT_ENCODING
         SetEnvIf Request_URI "^/routeros/(NEWEST7|NEWESTa7)\.(stable|long-term|upgrade)" NO_ACCEPT_ENCODING
+        SetEnvIf Request_URI "^/routeros/force_update.php" NO_ACCEPT_ENCODING
         RequestHeader unset Accept-Encoding env=NO_ACCEPT_ENCODING
     </IfModule>
+
 </VirtualHost>
 ```
 
@@ -282,7 +303,7 @@ The devices will then use the local mirror for updates:
 
 ## 📝 Logging
 
-Logs are written to the file specified by the `LOG_FILE` variable in `config.sh`.
+Logs are written to the syslog
 
 To disable logging to a file and only output messages to the console, set:
 

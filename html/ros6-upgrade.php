@@ -5,33 +5,35 @@
  *   /routeros/NEWEST6.upgrade?version=6.49.21
  *   /routeros/NEWESTa6.upgrade?version=6.49.21
  *
- * Cache key format: "filename_version" (e.g., "NEWEST6.upgrade_6.49.21")
- * Cache value format: "version timestamp|cache_timestamp"
+ * Cache key:   "<file>_<version>"   (e.g. "NEWEST6.upgrade_6.49.21")
+ * Cache line:  "<file>_<version>=<value>|<timestamp>"
  *
- * Optimization:
- *   - If cache is fresh (TTL not expired) → return it immediately, no upstream request
- *   - If cache is stale or missing → try upstream
- *   - Write to cache ONLY if upstream response differs from cached one
+ * Policy:
+ *   - Если в кэше есть запись для (file, version) — отдаём её, upstream не трогаем.
+ *   - Иначе — идём в upstream, при валидном ответе сохраняем (если значения
+ *     ещё нет или оно изменилось) и отдаём.
+ *   - Если upstream недоступен — local-fallback файл, затем хардкод.
  */
 
 const UPSTREAM_BASE   = 'https://upgrade.mikrotik.com/routeros/';
 const CONNECT_TIMEOUT = 2;
 const TOTAL_TIMEOUT   = 3;
-const CACHE_TTL       = 10800; // 3 hours in seconds
 
 const CACHE_FILE = __DIR__ . '/routeros/ros6.version.cache';
 
-const LOCAL_STABLE_FILE    = __DIR__ . '/LATEST.6';
-const LOCAL_LONGTERM_FILE  = __DIR__ . '/LATEST.6fix';
+const LOCAL_STABLE_FILE   = __DIR__ . '/LATEST.6';
+const LOCAL_LONGTERM_FILE = __DIR__ . '/LATEST.6fix';
 
 $FALLBACKS = [
-    'NEWEST6.stable'     => "6.49.22 1789563951\n",
-    'NEWESTa6.stable'    => "6.49.22 1789563951\n",
-    'NEWEST6.long-term'  => "6.49.22 1789563951\n",
-    'NEWESTa6.long-term' => "6.49.22 1789563951\n",
+    'NEWEST6.stable'     => "6.49.23 1791389116\n",
+    'NEWESTa6.stable'    => "6.49.23 1791389116\n",
+    'NEWEST6.long-term'  => "6.49.23 1791389116\n",
+    'NEWESTa6.long-term' => "6.49.23 1791389116\n",
     'NEWEST6.upgrade'    => "7.12.1 1700221125\n",
-    'NEWESTa6.upgrade'   => "7.23.7 1789561155\n",
+    'NEWESTa6.upgrade'   => "7.23.8 1791452776\n",
 ];
+
+/* ---------------- helpers ---------------- */
 
 function readLocalFallback(string $path): ?string
 {
@@ -43,19 +45,14 @@ function readLocalFallback(string $path): ?string
         return null;
     }
     $data = trim($data, "\r\n \t");
-    if ($data === '') {
-        return null;
-    }
-    return $data . "\n";
+    return $data === '' ? null : $data . "\n";
 }
 
 /**
- * Reads cache entry.
- * @param string $key
- * @param bool $checkTTL If true, returns null when entry is older than CACHE_TTL
- * @return array|null Returns ['value' => string, 'timestamp' => int] or null
+ * Возвращает значение из кэша для ключа или null.
+ * TTL больше нет — запись живёт, пока её не заменит успешный upstream.
  */
-function readCacheEntry(string $key, bool $checkTTL = true): ?array
+function readCache(string $key): ?string
 {
     if (!is_file(CACHE_FILE) || !is_readable(CACHE_FILE)) {
         return null;
@@ -64,112 +61,121 @@ function readCacheEntry(string $key, bool $checkTTL = true): ?array
     if ($lines === false) {
         return null;
     }
-    
-    $now = time();
     foreach ($lines as $line) {
         $parts = explode('=', $line, 2);
-        if (count($parts) === 2 && trim($parts[0]) === $key) {
-            // Format: "value|cache_timestamp"
-            $valueParts = explode('|', trim($parts[1]), 2);
-            if (count($valueParts) === 2) {
-                $value = $valueParts[0];
-                $cacheTime = (int)$valueParts[1];
-                
-                if ($checkTTL && ($now - $cacheTime) > CACHE_TTL) {
-                    return null; // Stale cache
-                }
-                
-                return $value !== '' 
-                    ? ['value' => $value . "\n", 'timestamp' => $cacheTime]
-                    : null;
-            }
+        if (count($parts) !== 2) {
+            continue;
         }
+        if (trim($parts[0]) !== $key) {
+            continue;
+        }
+        // Формат значения: "value|timestamp"
+        $valueParts = explode('|', trim($parts[1]), 2);
+        if (count($valueParts) !== 2) {
+            continue;
+        }
+        $value = $valueParts[0];
+        return $value !== '' ? $value . "\n" : null;
     }
     return null;
 }
 
 /**
- * Reads only the cached value (convenience wrapper).
+ * Атомарная запись в кэш.
+ *
+ * Пишет только если:
+ *   - записи для ключа ещё нет, ИЛИ
+ *   - существующее значение отличается от нового.
+ *
+ * Чтение и запись — под одним flock(LOCK_EX), поэтому при гонке
+ * нескольких параллельных запросов фактическая запись произойдёт
+ * только один раз.
+ *
+ * @return bool true — записали, false — не потребовалось
  */
-function readCache(string $key, bool $checkTTL = true): ?string
-{
-    $entry = readCacheEntry($key, $checkTTL);
-    return $entry !== null ? $entry['value'] : null;
-}
-
-/**
- * Atomic write to cache with timestamp.
- */
-function writeCache(string $key, string $value): void
+function writeCacheIfChanged(string $key, string $value): bool
 {
     $dir = dirname(CACHE_FILE);
     if (!is_dir($dir)) {
         @mkdir($dir, 0755, true);
     }
-    
+
     $value = trim($value, "\r\n \t");
     if ($value === '') {
-        return;
+        return false;
     }
-    
+
     $fp = @fopen(CACHE_FILE, 'c+');
     if (!$fp) {
-        return;
+        return false;
     }
-    
     if (!flock($fp, LOCK_EX)) {
         fclose($fp);
-        return;
+        return false;
     }
-    
+
     try {
-        $existing = [];
         rewind($fp);
         $content = stream_get_contents($fp);
+        $existing = [];
         if ($content !== false && $content !== '') {
             $existing = array_filter(
                 explode("\n", $content),
                 fn($line) => $line !== ''
             );
         }
-        
-        $newValue = $value . '|' . time();
-        
-        $lines = [];
-        $found = false;
+
+        $lines        = [];
+        $found        = false;
+        $currentValue = null;
+
         foreach ($existing as $line) {
             $parts = explode('=', $line, 2);
             if (count($parts) === 2 && trim($parts[0]) === $key) {
-                $lines[] = $key . '=' . $newValue;
                 $found = true;
+                $vp = explode('|', trim($parts[1]), 2);
+                if (count($vp) === 2) {
+                    $currentValue = $vp[0];
+                }
+                $lines[] = $line; // перезапишем ниже, если нужно
             } else {
                 $lines[] = $line;
             }
         }
-        if (!$found) {
-            $lines[] = $key . '=' . $newValue;
+
+        // Уже есть точно такое же значение — ничего не пишем.
+        if ($found && $currentValue === $value) {
+            return false;
         }
-        
+
+        $newLine = $key . '=' . $value . '|' . time();
+
+        if ($found) {
+            foreach ($lines as $i => $line) {
+                $parts = explode('=', $line, 2);
+                if (count($parts) === 2 && trim($parts[0]) === $key) {
+                    $lines[$i] = $newLine;
+                    break;
+                }
+            }
+        } else {
+            $lines[] = $newLine;
+        }
+
         ftruncate($fp, 0);
         rewind($fp);
         fwrite($fp, implode("\n", $lines) . "\n");
         fflush($fp);
-        
+
+        return true;
     } finally {
         flock($fp, LOCK_UN);
         fclose($fp);
     }
 }
 
-function resolveFallback(string $cacheKey, string $file, array $defaults): string
+function resolveFallback(string $file, array $defaults): string
 {
-    // 1. Try stale cache (ignore TTL) — better old data than nothing
-    $staleCached = readCache($cacheKey, false);
-    if ($staleCached !== null) {
-        return $staleCached;
-    }
-    
-    // 2. Try local files
     switch ($file) {
         case 'NEWEST6.stable':
         case 'NEWESTa6.stable':
@@ -183,12 +189,30 @@ function resolveFallback(string $cacheKey, string $file, array $defaults): strin
             if ($local !== null) return $local;
             break;
     }
-    
-    // 3. Hardcoded defaults
     return $defaults[$file];
 }
 
-// ---------- requested file ----------
+function serve(string $payload, string $cacheStatus): void
+{
+    header('HTTP/1.0 200 OK');
+    header('Content-Type: text/plain');
+    header('Content-Length: ' . strlen($payload));
+    header('Connection: close');
+    header('Cache-Control: no-store');
+    header('X-Cache: ' . $cacheStatus);
+
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_handler', '');
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
+    echo $payload;
+    exit;
+}
+
+/* ---------------- маршрутизация ---------------- */
+
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $file = basename($path);
 
@@ -201,7 +225,6 @@ if (!isset($FALLBACKS[$file])) {
     exit;
 }
 
-// ---------- extract version ----------
 $version = $_GET['version'] ?? '6.0';
 if (!preg_match('/^\d+(\.\d+)*$/', $version)) {
     $version = '6.0';
@@ -209,41 +232,27 @@ if (!preg_match('/^\d+(\.\d+)*$/', $version)) {
 
 $cacheKey = $file . '_' . $version;
 
-// ---------- FAST PATH: check fresh cache ----------
-$freshCache = readCache($cacheKey, true); // with TTL check
-if ($freshCache !== null) {
-    $payload = $freshCache;
-    
-    // Skip upstream entirely — just serve fresh cache
-    header('HTTP/1.0 200 OK');
-    header('Content-Type: text/plain');
-    header('Content-Length: ' . strlen($payload));
-    header('Connection: close');
-    header('Cache-Control: no-store');
-    header('X-Cache: HIT');
-    
-    @ini_set('zlib.output_compression', '0');
-    @ini_set('output_handler', '');
-    while (ob_get_level() > 0) { ob_end_clean(); }
-    
-    echo $payload;
-    exit;
+/* ---------- 1. Кэш: если есть — отдаём и выходим ---------- */
+$cached = readCache($cacheKey);
+if ($cached !== null) {
+    serve($cached, 'HIT');
 }
 
-// ---------- SLOW PATH: cache is stale or missing, go upstream ----------
+/* ---------- 2. Идём в upstream ---------- */
 $query = $_SERVER['QUERY_STRING'] ?? '';
 $url   = UPSTREAM_BASE . $file . ($query !== '' ? '?' . $query : '');
 
 $ch = curl_init($url);
 curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_CONNECTTIMEOUT => CONNECT_TIMEOUT,
-    CURLOPT_TIMEOUT        => TOTAL_TIMEOUT,
-    CURLOPT_USERAGENT      => 'RouterOS ' . $version,
-    CURLOPT_SSL_VERIFYPEER => true,
-    CURLOPT_SSL_VERIFYHOST => 2,
-    CURLOPT_ENCODING       => '',
-    CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+    CURLOPT_RETURNTRANSFER    => true,
+    CURLOPT_CONNECTTIMEOUT    => CONNECT_TIMEOUT,
+    CURLOPT_TIMEOUT           => TOTAL_TIMEOUT,
+    CURLOPT_USERAGENT         => 'RouterOS ' . $version,
+    CURLOPT_SSL_VERIFYPEER    => true,
+    CURLOPT_SSL_VERIFYHOST    => 2,
+    CURLOPT_ENCODING          => '',
+    CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_1_1,
+    CURLOPT_DNS_CACHE_TIMEOUT => 300,
 ]);
 
 $body     = curl_exec($ch);
@@ -258,41 +267,27 @@ $isValid = (
     && preg_match('/^\s*\d+(\.\d+)+\s+\d+/', $body) === 1
 );
 
-// ---------- build response body ----------
+/* ---------- 3. Ответ ---------- */
 if ($isValid) {
-    $newPayload = rtrim($body, "\r\n \t") . "\n";
-    
-    // Read stale cache (ignore TTL) to compare values
-    $staleCached = readCache($cacheKey, false);
-    
-    // Write to cache ONLY if data changed
-    if ($newPayload !== $staleCached) {
-        writeCache($cacheKey, $newPayload);
+    $payload = rtrim($body, "\r\n \t") . "\n";
+
+    // Быстрая проверка без лока: вдруг кто-то уже записал, пока мы ходили
+    // в upstream. Отсекает большинство гонок без взятия flock.
+    $again = readCache($cacheKey);
+    if ($again === null) {
+        // Никто не записал — пишем под локом, но с повторной проверкой
+        // «а вдруг записали прямо сейчас». Идемпотентно.
+        writeCacheIfChanged($cacheKey, $payload);
     }
-    
-    $payload = $newPayload;
-    $cacheStatus = 'MISS';
-} else {
-    error_log(sprintf(
-        '[mt-upgrade-proxy-v6] upstream fail: file=%s version=%s url=%s http=%s curl_err=%s',
-        $file, $version, $url, $httpCode, $curlErr ?: '-'
-    ));
-    
-    // Use stale cache or fallback chain
-    $payload = resolveFallback($cacheKey, $file, $FALLBACKS);
-    $cacheStatus = 'STALE';
+
+    serve($payload, 'MISS');
 }
 
-// ---------- headers ----------
-header('HTTP/1.0 200 OK');
-header('Content-Type: text/plain');
-header('Content-Length: ' . strlen($payload));
-header('Connection: close');
-header('Cache-Control: no-store');
-header('X-Cache: ' . $cacheStatus);
+/* ---------- 4. Upstream упал — fallback ---------- */
+error_log(sprintf(
+    '[mt-upgrade-proxy-v6] upstream fail: file=%s version=%s url=%s http=%s curl_err=%s',
+    $file, $version, $url, $httpCode, $curlErr ?: '-'
+));
 
-@ini_set('zlib.output_compression', '0');
-@ini_set('output_handler', '');
-while (ob_get_level() > 0) { ob_end_clean(); }
-
-echo $payload;
+$payload = resolveFallback($file, $FALLBACKS);
+serve($payload, 'STALE');

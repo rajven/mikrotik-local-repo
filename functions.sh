@@ -2,37 +2,30 @@
 
 # Logging functions
 log() {
-    if [ "${LOG_OFF}" = "1" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1".
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
-    fi
+    [ "${LOG_OFF:-0}" = "1" ] && return 0
+    logger -t "${LOG_TAG:-$(basename "$0")}" -p daemon.info -- "$1"
 }
 
 log_error() {
-    if [ "${LOG_OFF}" = "1" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" >&2
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" | tee -a "$LOG_FILE" >&2
-    fi
+    [ "${LOG_OFF:-0}" = "1" ] && return 0
+    logger -t "${LOG_TAG:-$(basename "$0")}" -p daemon.err -- "ERROR: $1"
 }
 
 log_success() {
-    if [ "${LOG_OFF}" = "1" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1"
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1" | tee -a "$LOG_FILE"
-    fi
+    [ "${LOG_OFF:-0}" = "1" ] && return 0
+    logger -t "${LOG_TAG:-$(basename "$0")}" -p daemon.notice -- "SUCCESS: $1"
 }
 
 # Error checking function
 check_error() {
     local ret=$1
     local message=$2
-    if [ $ret -ne 0 ]; then
+
+    if [ "$ret" -ne 0 ]; then
         log_error "$message"
         return 1
     fi
+
     return 0
 }
 
