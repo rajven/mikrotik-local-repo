@@ -1,9 +1,12 @@
 <?php
 
+$routeros_dir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/routeros';
+
 return [
     'upstream_base'   => 'https://upgrade.mikrotik.com/routeros/',
     'connect_timeout' => 2,
     'total_timeout'   => 3,
+    'routeros_dir'    => $routeros_dir,
 
     // ----- fallback -----
     'fallbacks' => [
@@ -24,24 +27,24 @@ return [
     // ----- ROS v6 -----
     'v6' => [
         'log_prefix'      => '[mt-upgrade-proxy-v6]',
-        'cache_file'      => __DIR__ . '/routeros/ros6.version.cache',
+        'cache_file'      => $routeros_dir . '/ros6.version.cache',
         'default_version' => '6.49.23',
         'user_agent'      => 'RouterOS ',
 
-        'local_stable'    => __DIR__ . '/LATEST.6',
-        'local_longterm'  => __DIR__ . '/LATEST.6fix',
+        'local_stable'    => $routeros_dir . '/LATEST.6',
+        'local_longterm'  => $routeros_dir . '/LATEST.6fix',
     ],
 
     // ----- ROS v7 -----
     'v7' => [
         'log_prefix'      => '[mt-upgrade-proxy-v7]',
-        'cache_file'      => __DIR__ . '/routeros/ros7.version.cache',
+        'cache_file'      => $routeros_dir . '/ros7.version.cache',
         'default_version' => '7.23.8',
         'user_agent'      => 'RouterOS ',
 
-        'local_stable'        => __DIR__ . '/NEWEST7.stable',
-        'local_longterm'      => __DIR__ . '/NEWEST7.stable',
-        'local_stable_afile'  => __DIR__ . '/NEWESTa7.stable',
-        'local_longterm_afile'=> __DIR__ . '/NEWESTa7.long-term',
+        'local_stable'        => $routeros_dir . '/NEWEST7.stable',
+        'local_longterm'      => $routeros_dir . '/NEWEST7.stable',
+        'local_stable_afile'  => $routeros_dir . '/NEWESTa7.stable',
+        'local_longterm_afile'=> $routeros_dir . '/NEWESTa7.long-term',
     ],
 ];
