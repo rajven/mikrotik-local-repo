@@ -74,3 +74,4 @@ if ($decisionMade === false) {
 // ============================================================
 
 echo $isAllowed ? 'ENABLED' : 'DISABLED';
+

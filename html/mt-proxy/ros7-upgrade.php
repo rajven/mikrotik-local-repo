@@ -1,6 +1,6 @@
 <?php
 /**
- * Proxy for upgrade.mikrotik.com
+ * Proxy for upgrade.mikrotik.com ROS 7 branch
  */
 
 $CFG = require __DIR__ . '/mt_proxy_config.php';
@@ -189,7 +189,7 @@ function serve(string $payload, string $cacheStatus): void
 
 /* ---------------- маршрутизация ---------------- */
 
-$path = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/routeros/';
+$path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $file = basename($path);
 
 if (!isset($FALLBACKS[$file])) {
