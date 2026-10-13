@@ -33,8 +33,8 @@ download_ros7 "7.12.1" "a" "ROS 7 after 7.12.1" "$force"
 # Загрузка Winbox
 download_winbox
 
-WARMUP_BASE=${SITE_URL} /usr/local/bin/ros-warmup.pl
-WARMUP_BASE=${SITE_URL} /usr/local/bin/ros-warmup.pl
+WARMUP_CACHE_FILE="ros6.version.cache" WARMUP_BASE=${SITE_URL} /usr/local/bin/ros-warmup.pl
+WARMUP_CACHE_FILE="ros7.version.cache" WARMUP_BASE=${SITE_URL} /usr/local/bin/ros-warmup.pl
 
 log "Mirror script completed successfully"
 exit 0

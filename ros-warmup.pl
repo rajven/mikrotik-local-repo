@@ -11,11 +11,12 @@ use Sys::Syslog qw(openlog syslog closelog);
 
 # --- настройки ---
 my $BASE        = $ENV{WARMUP_BASE}    // 'http://localhost';
-my $CACHE_URL   = $ENV{WARMUP_CACHE}   // "$BASE/routeros/ros7.version.cache";
+my $CACHE_FILE  = $ENV{WARMUP_CACHE_FILE}   // "ros7.version.cache";
 my $KEEP        = $ENV{WARMUP_KEEP}    // 3;      # сколько свежих версий на файл
 my $TIMEOUT     = $ENV{WARMUP_TIMEOUT} // 5;      # сек, на один запрос
 my $VERBOSE     = $ENV{WARMUP_VERBOSE} // 0;
 
+my $CACHE_URL   = "$BASE/routeros/$CACHE_FILE";
 openlog('ros-warmup', 'pid', 'daemon');
 
 # --- http-клиент ---
