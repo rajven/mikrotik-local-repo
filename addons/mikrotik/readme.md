@@ -7,7 +7,7 @@ An automated solution for MikroTik RouterOS that performs configuration backups,
 ## 📋 Features
 
 - ✅ **Daily Automated Backups** – Creates both binary backups and `.rsc` configuration exports.
-- ✅ **Automatic RouterOS Update Checks** – Monitors the configured update channel (e.g., `stable`).
+- ✅ **Automatic RouterOS Update Checks** – Monitors the configured update channel
 - ✅ **RouterBOARD Firmware Upgrades** – Automatically upgrades firmware when a new version is detected.
 - ✅ **Intelligent Local Proxy** – Caches upstream responses, provides instant fallbacks during network issues, and prevents RouterOS update timeouts.
 - ✅ **ROS6 & ROS7 Compatibility** – Adapts behavior based on the detected major RouterOS version.
@@ -21,7 +21,7 @@ An automated solution for MikroTik RouterOS that performs configuration backups,
 The script executes in a strict, sequential order:
 
 1. **Step 1** – Creates a daily scheduler (05:00) to trigger itself.
-2. **Step 2** – Checks for RouterOS package updates (forces `mode=http` on ROS7).
+2. **Step 2** – Checks for RouterOS package updates (forces `mode=http` on ROS7 for work with user mirror).
 3. **Step 3** – Checks for RouterBOARD firmware updates.
 4. **Step 3.5** – *(Optional)* Queries the external server for update authorization.
 5. **Step 4** – Creates backups, installs the RouterOS update, and schedules a post-reboot continuation.
@@ -29,14 +29,16 @@ The script executes in a strict, sequential order:
 7. **Step 6** – Cleans up the reboot scheduler and finishes.
 
 The script is provided in two formats:
-* `upgrade-mikrotik-inline.rsc` – For direct copy-paste into the terminal (may lag on devices with weak CPUs).
-* `upgrade-mikrotik.txt` – For manual creation via Winbox or WebFig.
+* .rsc – For direct copy-paste into the terminal (may lag on devices with weak CPUs).
+* .txt – For manual creation via Winbox or WebFig.
 
-Variations:
-
-* upgrade-mikrotik-ch.txt - the update channel is not specified, the current one is used
-* upgrade-mikrotik-lts.txt - the update channel is set to long-term
-* upgrade-mikrotik.txt - the update channel is set to stable
+List:
+* `BackupAndUpdate-http.rsc` - update script for work with policy server by http
+* `BackupAndUpdate.md5` - md5 sum file for change flag: md5sum BackupAndUpdate.rsc | cut -d' ' -f1 >BackupAndUpdate.md5
+* `BackupAndUpdate.rsc` - update script for work with policy server by https
+* `BKPUPD-UPDATER.rsc` - script for upgrade BackupAndUpdate
+* `dns.rsc` - example set dns-records
+* `install_updater.rsc` - example install BKPUPD-UPDATER script from cli
 
 ## ⚙️ MikroTik Configuration
 
@@ -46,13 +48,11 @@ Before using the script, edit the variables at the top of the file to match your
 :local scriptName "BackupAndUpdate"
 :local dailySchedulerName "BKPUPD-DAILY"
 :local rebootSchedulerName "BKPUPD-REBOOT"
-:local updateChannel "stable"          # Update channel: stable, testing, development, or long-term
 :local backupName "auto-backup"        # Backup filename prefix
 :local backupPassword ""               # Encryption password (leave empty for no encryption)
-:local Httpmode "http"                 # http or https (required for ROS7 update checks)
 
 # URL for centralized update policy check
-:local policyCheckUrl "http://YOUR_SERVER_NAME/routeros/force_update.php"
+:local policyServerName "https://SERVER_NAME"
 ```
 
 > **Note on using the Local Proxy:** To utilize the caching proxy, ensure your MikroTik devices resolve `upgrade.mikrotik.com` to your local server's IP address (via DNS static entries or firewall NAT), or configure the update server URL directly in RouterOS if supported by your version.

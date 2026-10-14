@@ -1,0 +1,204 @@
+# ============================================================
+# BackupAndUpdate Updater (ROS6/ROS7 compatible, HTTPS)
+# ============================================================
+
+:local scriptName "BackupAndUpdate"
+:local scriptNameOld "BackupAndUpdate.old"
+:local MyName "BKPUPD-UPDATER"
+:local serverName "https://SERVER_NAME"
+:local scriptBase ($serverName . "/routeros")
+:local md5Url ($scriptBase . "/BackupAndUpdate.md5")
+:local scriptUrl ($scriptBase . "/BackupAndUpdate.rsc")
+:local CAUrl ($serverName . "/fullchain.pem")
+:local tempMd5File "updater-md5.txt"
+:local tempScriptFile "updater-script.rsc"
+
+:log info ("BKPUPD-UPDATER: === UPDATER STARTED ===")
+
+# ============================================================
+# Step 1: Detect RouterOS version for HTTPS syntax
+# ============================================================
+
+:local rosVersion [/system resource get version]
+:local majorVersion [:pick $rosVersion 0 1]
+:global isRos7 ($majorVersion = "7")
+
+:if ($isRos7 = true) do={
+    :log info "BKPUPD-UPDATER: ROS 7 detected - using check-certificate=yes"
+} else={
+    :log info "BKPUPD-UPDATER: ROS 6 detected - using certificate-based HTTPS"
+}
+
+# ============================================================
+# Helper: fetch with HTTPS (version-aware)
+# For ROS6: auto-imports CA certificate from server if missing
+# ============================================================
+
+:local fetchUrl do={
+    :local url $1
+    :local dst $2
+    :local urlCA $3
+
+    :if ($isRos7 = true) do={
+        /tool fetch url=$url mode=https check-certificate=yes dst-path=$dst
+    } else={
+        # ROS6: check if CA certificate exists
+        :local certExists false
+        :foreach certId in=[/certificate find where name="globalSignCA.crt" ] do={
+            :set certExists true
+        }
+
+        :if ($certExists = false) do={
+            :log info ("BKPUPD-UPDATER: CA certificate not found - downloading from server " . $urlCA)
+
+            :do {
+                # Remove old fullchain.pem if exists
+                :foreach fileId in=[/file find name="fullchain.pem"] do={
+                    /file remove $fileId
+                }
+
+                # Download CA certificate (insecure, no cert yet)
+                /tool fetch url=$urlCA mode=https check-certificate=no dst-path=fullchain.pem
+                :delay 2s
+
+                # Verify file exists
+                :local fileId [/file find name="fullchain.pem"]
+                :if ([:len $fileId] = 0) do={
+                    :log error "BKPUPD-UPDATER: failed to download CA certificate"
+                    :error "CA download failed"
+                }
+
+                # Import certificate
+                /certificate import file-name=fullchain.pem passphrase="" name=globalSignCA.crt
+                :delay 1s
+
+                :log info "BKPUPD-UPDATER: CA certificate imported successfully"
+
+                # Cleanup temp file
+                /file remove fullchain.pem
+
+            } on-error={
+                :log error "BKPUPD-UPDATER: CA certificate setup FAILED"
+                :foreach fileId in=[/file find name="fullchain.pem"] do={
+                    /file remove $fileId
+                }
+                :error "CA setup failed"
+            }
+        }
+
+        #disable crl
+        /certificate settings set crl-download=no crl-use=no
+
+        # Now fetch with certificate validation
+        /tool fetch url=$url mode=https check-certificate=yes dst-path=$dst
+    }
+}
+
+# ============================================================
+# Step 2: Download MD5 hash from server
+# ============================================================
+
+:local serverMd5 ""
+
+:do {
+    :log info ("BKPUPD-UPDATER: fetching MD5 from " . $md5Url)
+
+    :foreach fileId in=[/file find name=$tempMd5File] do={
+        /file remove $fileId
+    }
+
+    $fetchUrl $md5Url $tempMd5File $CAUrl
+    :delay 2s
+
+    :local fileId [/file find name=$tempMd5File]
+    :if ([:len $fileId] > 0) do={
+        :set serverMd5 [/file get $fileId contents]
+        :set serverMd5 [:pick $serverMd5 0 32]
+        /file remove $fileId
+        :log info ("BKPUPD-UPDATER: server MD5 = " . $serverMd5)
+    } else={
+        :log error "BKPUPD-UPDATER: failed to read MD5 file"
+    }
+} on-error={
+    :log error "BKPUPD-UPDATER: failed to download MD5 (server unreachable or HTTPS error?)"
+}
+
+:if ($serverMd5 = "") do={
+    :log error "BKPUPD-UPDATER: no valid MD5 received - aborting"
+    :error "No MD5"
+}
+
+# ============================================================
+# Step 3: Read current MD5 from the main script's comment
+# ============================================================
+
+:local currentMd5 ""
+
+:do {
+    :set currentMd5 [/system script get $MyName comment]
+    :if ([:len $currentMd5] > 0) do={
+        :log info ("BKPUPD-UPDATER: current MD5 = " . $currentMd5)
+    } else={
+        :log info "BKPUPD-UPDATER: no current MD5 in script comment (first run?)"
+    }
+} on-error={
+    :log warning "BKPUPD-UPDATER: failed to read script comment"
+}
+
+# ============================================================
+# Step 4: Compare hashes and update if needed
+# ============================================================
+
+:if ($serverMd5 != $currentMd5) do={
+    :log info "BKPUPD-UPDATER: MD5 mismatch - updating script"
+    :do {
+        :log info ("BKPUPD-UPDATER: Rename current script to: ".$scriptNameOld)
+        /system script set [find name=$scriptName] name=$scriptNameOld
+        }
+
+    :do {
+        :foreach fileId in=[/file find name=$tempScriptFile] do={
+            /file remove $fileId
+        }
+
+        :log info ("BKPUPD-UPDATER: downloading script from " . $scriptUrl)
+        $fetchUrl $scriptUrl $tempScriptFile $CAUrl
+        :delay 2s
+
+        :local fileId [/file find name=$tempScriptFile]
+        :if ([:len $fileId] = 0) do={
+            :log error "BKPUPD-UPDATER: failed to download script file"
+            :error "Download failed"
+        }
+
+        :log info "BKPUPD-UPDATER: importing new script"
+        /import file=$tempScriptFile
+        :delay 1s
+
+        # Persist new MD5 in the main script's comment
+        /system script set $MyName comment=$serverMd5
+        :log info ("BKPUPD-UPDATER: script updated successfully, new MD5 = " . $serverMd5)
+
+        # Cleanup temp file
+        :foreach fileId in=[/file find name=$tempScriptFile] do={
+            /file remove $fileId
+        }
+    :do {
+        :log info ("BKPUPD-UPDATER: Remove old script ".$scriptNameOld)
+        /system script remove [ find name=$scriptNameOld ]
+        }
+    } on-error={
+        :log error "BKPUPD-UPDATER: script update FAILED"
+        :foreach fileId in=[/file find name=$tempScriptFile] do={
+            /file remove $fileId
+        }
+       :do {
+           :log info ("BKPUPD-UPDATER: Restore old script ".$scriptName)
+           /system script set [find name=$scriptNameOld] name=$scriptName
+           }
+    }
+} else={
+    :log info "BKPUPD-UPDATER: script is up to date"
+}
+
+:log info "BKPUPD-UPDATER: === UPDATER FINISHED ==="

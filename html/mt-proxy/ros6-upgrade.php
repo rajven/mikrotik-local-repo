@@ -2,60 +2,40 @@
 /**
  * Proxy for upgrade.mikrotik.com (RouterOS v6 branch)
  */
-
 $CFG = require __DIR__ . '/mt_proxy_config.php';
 $V6  = $CFG['v6'];
-
 define('UPSTREAM_BASE',   $CFG['upstream_base']);
 define('CONNECT_TIMEOUT', $CFG['connect_timeout']);
 define('TOTAL_TIMEOUT',   $CFG['total_timeout']);
-
 define('CACHE_FILE', $V6['cache_file']);
 define('LOG_PREFIX', $V6['log_prefix']);
 define('DEFAULT_VERSION', $V6['default_version']);
 define('USER_AGENT_PREFIX', $V6['user_agent']);
-
 define('LOCAL_STABLE_FILE',   $V6['local_stable']);
 define('LOCAL_LONGTERM_FILE', $V6['local_longterm']);
-
 $FALLBACKS = $CFG['fallbacks'];
 
 /* ---------------- helpers ---------------- */
-
 function readLocalFallback(string $path): ?string
 {
-    if (!is_file($path) || !is_readable($path)) {
-        return null;
-    }
+    if (!is_file($path) || !is_readable($path)) return null;
     $data = @file_get_contents($path);
-    if ($data === false) {
-        return null;
-    }
-    $data = trim($data, "\r\n \t");
+    if ($data === false) return null;
+    $data = trim($data, "\r\n\t ");
     return $data === '' ? null : $data . "\n";
 }
 
 function readCache(string $key): ?string
 {
-    if (!is_file(CACHE_FILE) || !is_readable(CACHE_FILE)) {
-        return null;
-    }
+    if (!is_file(CACHE_FILE) || !is_readable(CACHE_FILE)) return null;
     $lines = @file(CACHE_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if ($lines === false) {
-        return null;
-    }
+    if ($lines === false) return null;
     foreach ($lines as $line) {
         $parts = explode('=', $line, 2);
-        if (count($parts) !== 2) {
-            continue;
-        }
-        if (trim($parts[0]) !== $key) {
-            continue;
-        }
+        if (count($parts) !== 2) continue;
+        if (trim($parts[0]) !== $key) continue;
         $valueParts = explode('|', trim($parts[1]), 2);
-        if (count($valueParts) !== 2) {
-            continue;
-        }
+        if (count($valueParts) !== 2) continue;
         $value = $valueParts[0];
         return $value !== '' ? $value . "\n" : null;
     }
@@ -65,80 +45,48 @@ function readCache(string $key): ?string
 function writeCacheIfChanged(string $key, string $value): bool
 {
     $dir = dirname(CACHE_FILE);
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-
-    $value = trim($value, "\r\n \t");
-    if ($value === '') {
-        return false;
-    }
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    $value = trim($value, "\r\n\t ");
+    if ($value === '') return false;
 
     $fp = @fopen(CACHE_FILE, 'c+');
-    if (!$fp) {
-        return false;
-    }
-    if (!flock($fp, LOCK_EX)) {
-        fclose($fp);
-        return false;
-    }
-
+    if (!$fp) return false;
+    if (!flock($fp, LOCK_EX)) { fclose($fp); return false; }
     try {
         rewind($fp);
         $content = stream_get_contents($fp);
         $existing = [];
         if ($content !== false && $content !== '') {
-            $existing = array_filter(
-                explode("\n", $content),
-                fn($line) => $line !== ''
-            );
+            $existing = array_filter(explode("\n", $content), fn($l) => $l !== '');
         }
-
-        $lines        = [];
-        $found        = false;
-        $currentValue = null;
-
+        $lines = []; $found = false; $currentValue = null;
         foreach ($existing as $line) {
             $parts = explode('=', $line, 2);
             if (count($parts) === 2 && trim($parts[0]) === $key) {
                 $found = true;
                 $vp = explode('|', trim($parts[1]), 2);
-                if (count($vp) === 2) {
-                    $currentValue = $vp[0];
-                }
+                if (count($vp) === 2) $currentValue = $vp[0];
                 $lines[] = $line;
             } else {
                 $lines[] = $line;
             }
         }
-
-        if ($found && $currentValue === $value) {
-            return false;
-        }
-
+        if ($found && $currentValue === $value) return false;
         $newLine = $key . '=' . $value . '|' . time();
-
         if ($found) {
             foreach ($lines as $i => $line) {
                 $parts = explode('=', $line, 2);
-                if (count($parts) === 2 && trim($parts[0]) === $key) {
-                    $lines[$i] = $newLine;
-                    break;
-                }
+                if (count($parts) === 2 && trim($parts[0]) === $key) { $lines[$i] = $newLine; break; }
             }
         } else {
             $lines[] = $newLine;
         }
-
-        ftruncate($fp, 0);
-        rewind($fp);
+        ftruncate($fp, 0); rewind($fp);
         fwrite($fp, implode("\n", $lines) . "\n");
         fflush($fp);
-
         return true;
     } finally {
-        flock($fp, LOCK_UN);
-        fclose($fp);
+        flock($fp, LOCK_UN); fclose($fp);
     }
 }
 
@@ -150,7 +98,6 @@ function resolveFallback(string $file, array $defaults): string
             $local = readLocalFallback(LOCAL_STABLE_FILE);
             if ($local !== null) return $local;
             break;
-
         case 'NEWEST6.long-term':
         case 'NEWESTa6.long-term':
             $local = readLocalFallback(LOCAL_LONGTERM_FILE);
@@ -168,19 +115,14 @@ function serve(string $payload, string $cacheStatus): void
     header('Connection: close');
     header('Cache-Control: no-store');
     header('X-Cache: ' . $cacheStatus);
-
     @ini_set('zlib.output_compression', '0');
     @ini_set('output_handler', '');
-    while (ob_get_level() > 0) {
-        ob_end_clean();
-    }
-
+    while (ob_get_level() > 0) ob_end_clean();
     echo $payload;
     exit;
 }
 
 /* ---------------- маршрутизация ---------------- */
-
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $file = basename($path);
 
@@ -202,14 +144,11 @@ $cacheKey = $file . '_' . $version;
 
 /* ---------- 1. Кэш ---------- */
 $cached = readCache($cacheKey);
-if ($cached !== null) {
-    serve($cached, 'HIT');
-}
+if ($cached !== null) serve($cached, 'HIT');
 
 /* ---------- 2. Upstream ---------- */
 $query = $_SERVER['QUERY_STRING'] ?? '';
 $url   = UPSTREAM_BASE . $file . ($query !== '' ? '?' . $query : '');
-
 $ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER    => true,
@@ -222,7 +161,6 @@ curl_setopt_array($ch, [
     CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_1_1,
     CURLOPT_DNS_CACHE_TIMEOUT => 300,
 ]);
-
 $body     = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlErr  = curl_error($ch);
@@ -237,13 +175,9 @@ $isValid = (
 
 /* ---------- 3. Ответ ---------- */
 if ($isValid) {
-    $payload = rtrim($body, "\r\n \t") . "\n";
-
+    $payload = rtrim($body, "\r\n\t ") . "\n";
     $again = readCache($cacheKey);
-    if ($again === null) {
-        writeCacheIfChanged($cacheKey, $payload);
-    }
-
+    if ($again === null) writeCacheIfChanged($cacheKey, $payload);
     serve($payload, 'MISS');
 }
 
@@ -252,6 +186,5 @@ error_log(sprintf(
     '%s upstream fail: file=%s version=%s url=%s http=%s curl_err=%s',
     LOG_PREFIX, $file, $version, $url, $httpCode, $curlErr ?: '-'
 ));
-
 $payload = resolveFallback($file, $FALLBACKS);
 serve($payload, 'STALE');
