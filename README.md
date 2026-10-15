@@ -200,6 +200,7 @@ systemctl reload apache2
 **Nginx**
 
 ```
+cp addons/nginx/conf.d/mikrotik_ua.conf /etc/nginx/conf.d
 cp addons/nginx/snippets/mt-fastcgi.conf /etc/nginx/snippets/
 cp addons/nginx/site.conf               /etc/nginx/sites-available/mirror
 ln -sf /etc/nginx/sites-available/mirror /etc/nginx/sites-enabled/mirror
