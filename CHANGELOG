@@ -1,29 +1,56 @@
-What's new (Fri Oct  2 18:37:58 MSK 2026):
-*) cron added
-*) The comments in the scripts for MikroTik are written in English.
-*) A local cache of responses from MikroTik servers has been added.
+What's new (Fri Apr 12 12:31:53 MSK 2024):
 
-What's new (Tue Sep 29 22:35:18 MSK 2026):
-*) A simple script for Mikrotik has been added to automatically update the system, with control over the version being installed.
+*) added scripts for downloading the specified release, for versions up to ROS 7.12.1 (download_ROS7_release.sh) and after 7.12.1 (download_ROS7a_release.sh);
+*) Upgrade support has been made from ROS6 to ROS7
+*) Repository support has been made for ROS version 7.12.1 and higher
 
-What's new (Mon Sep 28 10:46:52 PM MSK 2026):
-*) The download of the package for upgrading from ROS6 has been added.
+What's new (Wed Aug 27 18:18:45 MSK 2025):
+*) winbox download has been changed. It is now placed in a separate winbox directory.
+*) Optimized the script. Added a log
+
+What's new (Thu Sep 10 02:11:56 PM MSK 2026):
+*) The unpacking of the package all_packages*.zip has been added.
+*) Proxying of the version request for upgrading from ROS6 to ROS7 has been added.
 
 What's new (Wed Sep 16 11:34:56 AM MSK 2026):
 *) Translate to EN
 *) Proxying of the version request for updating ROS7 has been added.
 *) Added URL_SCHEMA="http" for package update requests. Winbox is always updated via https.
 
-What's new (Thu Sep 10 02:11:56 PM MSK 2026):
-*) The unpacking of the package all_packages*.zip has been added.
-*) Proxying of the version request for upgrading from ROS6 to ROS7 has been added.
+What's new (Mon Sep 28 10:46:52 PM MSK 2026):
+*) The download of the package for upgrading from ROS6 has been added.
 
-What's new (Wed Aug 27 18:18:45 2025):
-*) winbox download has been changed. It is now placed in a separate winbox directory.
-*) Optimized the script. Added a log
+What's new (Tue Sep 29 22:35:18 MSK 2026):
+*) A simple script for Mikrotik has been added to automatically update the system, with control over the version being installed.
 
-What's new (Fri Apr 12 12:31:53 2024):
+What's new (Fri Oct  2 18:37:58 MSK 2026):
+*) cron added
+*) The comments in the scripts for MikroTik are written in English.
+*) A local cache of responses from MikroTik servers has been added.
 
-*) added scripts for downloading the specified release, for versions up to ROS 7.12.1 (download_ROS7_release.sh) and after 7.12.1 (download_ROS7a_release.sh);
-*) Upgrade support has been made from ROS6 to ROS7
-*) Repository support has been made for ROS version 7.12.1 and higher
+What's new (Fri Oct  9 20:31:36 MSK 2026):
+*) Model and serial number are now checked by force_update.php to decide whether the update is allowed.
+*) Device script: fixed removal of old backups, existing script is deleted before re-import, comments translated to English.
+
+What's new (Sun Oct 11 22:36:08 MSK 2026):
+*) Script variants without an explicit update channel added (the channel currently set on the device is used).
+
+What's new (Tue Oct 13 17:28:08 MSK 2026):
+*) The version caching algorithm has been changed: a cache hit is now final (upstream is not queried), the timestamp in the cache line is informational only; the 3-hour TTL was dropped.
+*) ros-warmup.pl added: after every sync it re-requests the newest WARMUP_KEEP versions per endpoint so devices never trigger the first upstream lookup.
+*) Synchronisation scripts now log to syslog only (logger, daemon facility); LOG_DIR / file logging and addons/get_6_upgrade_list.sh have been removed.
+*) Default mirror path changed from /mnt/md0/mirror/routeros to /var/www/html/routeros.
+*) PHP endpoints moved to html/mt-proxy/, seed cache files to html/routeros/. Parameters live in mt_proxy_config.php, update rules in mt_proxy_rules.php, cache file paths are derived from DOCUMENT_ROOT.
+*) nginx configuration reworked (mt-fastcgi.conf snippet), Apache site configuration fixed.
+
+What's new (Wed Oct 14 22:08:21 MSK 2026):
+*) Web admin added (html/mt-proxy/index.php + db.php, SQLite with WAL): auto-registered devices, per-serial and per-model allowed-version lists, global version list, search, bulk edit.
+*) force_update.php now stores device inventory (serial, model, IPs, currentFirmware/upgradeFirmware, last offered version) in mt_proxy.db; the decision chain is device list -> model rule -> global versions -> mt_proxy_rules.php (migration only) -> allowed_versions_hardcoded.
+*) Device scripts replaced by BackupAndUpdate / BKPUPD-UPDATER / install_updater (https and -http variants), self-updating via BackupAndUpdate.md5, reboot-loop protection with failure counters.
+*) Apache configuration split into conf-available/php-autodetect.conf (FPM or mod_php auto-detection) and sites-available/00-mirror.conf; html/fullchain.pem certificate bundle added; dns.rsc added.
+
+What's new (Thu Oct 15 10:54:14 MSK 2026):
+*) shell/Perl scripts moved into scripts/.
+*) Apache: php-autodetect and 00-mirror.conf corrected; the -http variants now ship as ready .rsc files (install_updater-http.rsc, BackupAndUpdate-http.rsc, BKPUPD-UPDATER-http.rsc).
+*) BackupAndUpdate.md5 and addons/mikrotik/readme*.md removed - keep the checksum generated on the mirror, the device scripts are documented in the main README now.
+*) nginx site.conf updated to match the Apache routing.
