@@ -230,13 +230,20 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n    :log info \"BackupAndUpdate: Step 3.5 start - reporting state to server\"\
     \n\
     \n    :local safeModel \"\"\
+    \n    :local enc \"\"\
     \n    :for i from=0 to=([:len \$rawModel] - 1) do={\
     \n        :local char [:pick \$rawModel \$i (\$i + 1)]\
-    \n        :if (\$char = \" \") do={\
-    \n            :set safeModel (\$safeModel . \"%20\")\
-    \n        } else={\
-    \n            :set safeModel (\$safeModel . \$char)\
-    \n        }\
+    \n        :set enc \$char\
+    \n        :if (\$char = \"%\") do={ :set enc \"%25\" }\
+    \n        :if (\$char = \" \") do={ :set enc \"%20\" }\
+    \n        :if (\$char = \"&\") do={ :set enc \"%26\" }\
+    \n        :if (\$char = \"+\") do={ :set enc \"%2B\" }\
+    \n        :if (\$char = \"#\") do={ :set enc \"%23\" }\
+    \n        :if (\$char = \"=\") do={ :set enc \"%3D\" }\
+    \n        :if (\$char = \"\?\") do={ :set enc \"%3F\" }\
+    \n        :if (\$char = \";\") do={ :set enc \"%3B\" }\
+    \n        :if (\$char = \"/\") do={ :set enc \"%2F\" }\
+    \n        :set safeModel (\$safeModel . \$enc)\
     \n    }\
     \n\
     \n    :local reportVersion \$latestVersion\

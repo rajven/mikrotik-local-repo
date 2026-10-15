@@ -228,13 +228,20 @@
     :log info "BackupAndUpdate: Step 3.5 start - reporting state to server"
 
     :local safeModel ""
+    :local enc ""
     :for i from=0 to=([:len $rawModel] - 1) do={
         :local char [:pick $rawModel $i ($i + 1)]
-        :if ($char = " ") do={
-            :set safeModel ($safeModel . "%20")
-        } else={
-            :set safeModel ($safeModel . $char)
-        }
+        :set enc $char
+        :if ($char = "%") do={ :set enc "%25" }
+        :if ($char = " ") do={ :set enc "%20" }
+        :if ($char = "&") do={ :set enc "%26" }
+        :if ($char = "+") do={ :set enc "%2B" }
+        :if ($char = "#") do={ :set enc "%23" }
+        :if ($char = "=") do={ :set enc "%3D" }
+        :if ($char = "?") do={ :set enc "%3F" }
+        :if ($char = ";") do={ :set enc "%3B" }
+        :if ($char = "/") do={ :set enc "%2F" }
+        :set safeModel ($safeModel . $enc)
     }
 
     :local reportVersion $latestVersion
