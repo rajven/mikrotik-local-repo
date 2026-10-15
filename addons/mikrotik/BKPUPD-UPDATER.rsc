@@ -1,3 +1,4 @@
+/system script
 add dont-require-permissions=no name=BKPUPD-UPDATER policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="# ============================================================\
     \n# BackupAndUpdate Updater (ROS6/ROS7 compatible, HTTPS)\
     \n# ============================================================\
