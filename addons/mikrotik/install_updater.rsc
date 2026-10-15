@@ -4,7 +4,6 @@
 
 /import file=BKPUPD-UPDATER.rsc
 
-/system script run BKPUPD-UPDATER
-
 /file remove BKPUPD-UPDATER.rsc
 
+/system script run BKPUPD-UPDATER

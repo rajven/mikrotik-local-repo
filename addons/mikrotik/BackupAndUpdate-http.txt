@@ -215,7 +215,7 @@
     :local url $1
     :local dst $2
 
-    /tool fetch url=$url mode=https dst-path=$dst
+    /tool fetch url=$url mode=http dst-path=$dst
 
 }
 
