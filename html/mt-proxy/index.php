@@ -39,13 +39,29 @@ if (is_file($filename) && is_readable($filename)) {
  */
 function readAvailableFirmwareVersions($CFG): array
 {
-    $versions = [];
-    $versions['ROS6 stable'] = readROSVersionFile($CFG['v6']['local_stable']);
-    $versions['ROS6 long-term'] = readROSVersionFile($CFG['v6']['local_longterm']);
-    $versions['ROS7 stable'] = readROSVersionFile($CFG['v7']['local_stable_afile']);
-    $versions['ROS7 long-term'] = readROSVersionFile($CFG['v7']['local_longterm_afile']);
-    return $versions;
+    $raw = [
+        'ROS6 stable'    => readROSVersionFile($CFG['v6']['local_stable']),
+        'ROS6 long-term' => readROSVersionFile($CFG['v6']['local_longterm']),
+        'ROS7 stable'    => readROSVersionFile($CFG['v7']['local_stable_afile']),
+        'ROS7 long-term' => readROSVersionFile($CFG['v7']['local_longterm_afile']),
+    ];
+
+    $result = [];
+    foreach ($raw as $label => $version) {
+        $hasChangelog = false;
+        if ($version !== null) {
+            $changelogPath = $CFG['routeros_dir'] . '/' . $version . '/CHANGELOG';
+            $hasChangelog = is_file($changelogPath) && is_readable($changelogPath);
+        }
+        $result[] = [
+            'label'         => $label,
+            'version'       => $version,
+            'has_changelog' => $hasChangelog,
+        ];
+    }
+    return $result;
 }
+
 
 try {
     switch ($action) {
@@ -294,6 +310,30 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
   .avail-row{display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:6px 10px;border-radius:6px;font-size:12px}
   .avail-label{color:var(--muted);font-size:11px}
   .avail-version{font-family:ui-monospace,monospace;font-weight:600;color:var(--accent)}
+
+.avail-version.clickable {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+}
+.avail-version.clickable:hover {
+    text-decoration-style: solid;
+    color: #7dd3fc;
+}
+.avail-version.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    font-weight: 600;
+}
+.avail-version.missing {
+    color: var(--muted);
+    font-style: italic;
+}
+
 </style>
 </head>
 <body>
@@ -481,21 +521,37 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
         <input type="text" name="version" placeholder="7.24.5" required>
         <button class="btn" type="submit">Add</button>
       </form>
-      
-      <?php if (!empty($availableVersions)): ?>
-      <h2 style="margin-top:24px">Available firmware versions</h2>
-      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
-        Current versions on the proxy server.
-      </p>
-      <div class="avail-list">
-        <?php foreach ($availableVersions as $label => $version): ?>
-          <div class="avail-row">
-            <span class="avail-label"><?= htmlspecialchars($label) ?></span>
-            <span class="avail-version"><?= htmlspecialchars($version) ?></span>
-          </div>
-        <?php endforeach; ?>
-      </div>
+
+    <?php if (!empty($availableVersions)): ?>
+    <h2 style="margin-top:24px">Available firmware versions</h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
+      Current versions on the proxy server. Click a version to view its CHANGELOG.
+    </p>
+    <div class="avail-list">
+      <?php foreach ($availableVersions as $item):
+          $label        = $item['label'];
+          $version      = $item['version'];
+          $hasChangelog = $item['has_changelog'];
+      ?>
+    <div class="avail-row">
+      <span class="avail-label"><?= htmlspecialchars($label) ?></span>
+      <?php if ($version === null): ?>
+        <span class="avail-version missing" title="Version file is missing or unreadable">unknown</span>
+      <?php elseif ($hasChangelog): ?>
+        <a href="#" class="avail-version clickable"
+           data-version="<?= htmlspecialchars($version) ?>"
+           onclick="showChangelog(this); return false;"
+           title="Click to view CHANGELOG"><?= htmlspecialchars($version) ?></a>
+      <?php else: ?>
+        <span class="avail-version error"
+              title="CHANGELOG not found in <?= htmlspecialchars($version) ?>/ directory">
+          <?= htmlspecialchars($version) ?>
+        </span>
       <?php endif; ?>
+    </div>
+  <?php endforeach; ?>
+</div>
+        <?php endif; ?>
     </div>
   </div>
 </div>
@@ -583,6 +639,35 @@ echo htmlspecialchars(implode("\n", $ipList));
 <?php endif; ?>
 
 <script>
+
+function showChangelog(el) {
+    var version = el.getAttribute('data-version');
+    document.getElementById('changelogVersion').textContent = version;
+    document.getElementById('changelogContent').textContent = 'Loading...';
+    document.getElementById('changelogModal').style.display = 'flex';
+
+    fetch('changelog.php?version=' + encodeURIComponent(version))
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+        })
+        .then(function(text) {
+            document.getElementById('changelogContent').textContent = text;
+        })
+        .catch(function(err) {
+            document.getElementById('changelogContent').textContent = 'Error loading CHANGELOG: ' + err.message;
+        });
+}
+
+function closeChangelog() {
+    document.getElementById('changelogModal').style.display = 'none';
+}
+
+// Закрытие по Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeChangelog();
+});
+
 (function () {
   var bar       = document.getElementById('bulkBar');
   var idsBox    = document.getElementById('bulkIds');
@@ -647,6 +732,19 @@ echo htmlspecialchars(implode("\n", $ipList));
   refresh();
 })();
 </script>
+
+<div class="modal-bg" id="changelogModal" style="display:none"
+     onclick="if(event.target===this)closeChangelog()">
+  <div class="modal" style="max-width:800px;max-height:90vh">
+    <h3>CHANGELOG <span id="changelogVersion" class="mono" style="color:var(--accent)"></span></h3>
+    <pre id="changelogContent" style="background:var(--bg);padding:12px;border-radius:6px;
+        overflow:auto;max-height:70vh;font-size:12px;line-height:1.5;white-space:pre-wrap;
+        border:1px solid var(--border);color:var(--text)">Loading...</pre>
+    <div class="row">
+      <button class="btn sec" onclick="closeChangelog()">Close</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
