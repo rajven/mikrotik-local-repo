@@ -5,11 +5,12 @@
 :local scriptName "BackupAndUpdate"
 :local scriptNameOld "BackupAndUpdate.old"
 :local MyName "BKPUPD-UPDATER"
-:local serverName "https://SERVER_NAME"
+:local serverName "http://SERVER_NAME"
 :local scriptBase ($serverName . "/routeros")
 :local md5Url ($scriptBase . "/BackupAndUpdate.md5")
 :local scriptUrl ($scriptBase . "/BackupAndUpdate.rsc")
 :local CAUrl ($serverName . "/fullchain.pem")
+:local CACertName "globalSignCA.crt"
 :local tempMd5File "updater-md5.txt"
 :local tempScriptFile "updater-script.rsc"
 
@@ -39,58 +40,60 @@
     :local dst $2
     :local urlCA $3
 
+    # Determine if HTTPS is used
+    :local isHttps false
+    :local httpMode http
+    :if ([:pick $url 0 5] = "https") do={
+        :set isHttps true
+        :set httpMode https
+    }
+
     :if ($isRos7 = true) do={
-        /tool fetch url=$url mode=https check-certificate=yes dst-path=$dst
+        /tool fetch url=$url mode=$httpMode check-certificate=yes dst-path=$dst
     } else={
-        # ROS6: check if CA certificate exists
-        :local certExists false
-        :foreach certId in=[/certificate find where name="globalSignCA.crt" ] do={
-            :set certExists true
-        }
-
-        :if ($certExists = false) do={
-            :log info ("BKPUPD-UPDATER: CA certificate not found - downloading from server " . $urlCA)
-
-            :do {
-                # Remove old fullchain.pem if exists
-                :foreach fileId in=[/file find name="fullchain.pem"] do={
-                    /file remove $fileId
+        :if ($isHttps = true) do={
+            # ROS6: check if CA certificate exists
+            :local certExists false
+            :foreach certId in=[/certificate find where name ~"^$CACertName" ] do={
+                :set certExists true
+            }
+            :if ($certExists = false) do={
+                :log info ("BKPUPD-UPDATER: CA certificate " . $CACertName . " not found - downloading from server " . $urlCA)
+                :do {
+                    # Remove old fullchain.pem if exists 
+                    /file remove [ find name="fullchain.pem"]
+                    # Download CA certificate (insecure, no cert yet)
+                    /tool fetch url=$urlCA mode=https check-certificate=no dst-path=fullchain.pem
+                    :delay 2s
+                    # Verify file exists
+                    :local fileId [/file find name="fullchain.pem"]
+                    :if ([:len $fileId] = 0) do={
+                        :log error "BKPUPD-UPDATER: failed to download CA certificate"
+                        :error "CA download failed"
+                    }
+                    # Import certificate
+                    /certificate import file-name=fullchain.pem passphrase="" name=$CACertName
+                    :delay 1s
+                    :log info ("BKPUPD-UPDATER: CA certificate " . $CACertName . " imported successfully")
+                    # Cleanup temp file
+                    /file remove [ find name="fullchain.pem"]
+                } on-error={
+                    :log error "BKPUPD-UPDATER: CA certificate setup FAILED"
+                    /file remove [ find name="fullchain.pem"]
+                    :error "CA setup failed"
                 }
-
-                # Download CA certificate (insecure, no cert yet)
-                /tool fetch url=$urlCA mode=https check-certificate=no dst-path=fullchain.pem
-                :delay 2s
-
-                # Verify file exists
-                :local fileId [/file find name="fullchain.pem"]
-                :if ([:len $fileId] = 0) do={
-                    :log error "BKPUPD-UPDATER: failed to download CA certificate"
-                    :error "CA download failed"
-                }
-
-                # Import certificate
-                /certificate import file-name=fullchain.pem passphrase="" name=globalSignCA.crt
-                :delay 1s
-
-                :log info "BKPUPD-UPDATER: CA certificate imported successfully"
-
-                # Cleanup temp file
-                /file remove fullchain.pem
-
-            } on-error={
-                :log error "BKPUPD-UPDATER: CA certificate setup FAILED"
-                :foreach fileId in=[/file find name="fullchain.pem"] do={
-                    /file remove $fileId
-                }
-                :error "CA setup failed"
             }
         }
 
-        #disable crl
-        /certificate settings set crl-download=no crl-use=no
-
-        # Now fetch with certificate validation
-        /tool fetch url=$url mode=https check-certificate=yes dst-path=$dst
+       :if ($isHttps = true) do={
+            #disable crl
+            /certificate settings set crl-download=no crl-use=no
+            # Now fetch with certificate validation
+            /tool fetch url=$url mode=https check-certificate=yes dst-path=$dst
+            } else={
+            # Now fetch with certificate validation
+            /tool fetch url=$url mode=http dst-path=$dst
+            }
     }
 }
 

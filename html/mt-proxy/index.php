@@ -22,21 +22,17 @@ function parseVersionsInput(string $raw): array
 
 function readROSVersionFile($filename)
 {
-if (is_file($filename) && is_readable($filename)) {
-    $content = @file_get_contents($filename);
-    if ($content !== false) {
-        $content = trim($content);
-        // Формат: "7.23.8 1791452776" — берём первую часть
-        $parts = preg_split('/\s+/', $content, 2);
-        if (!empty($parts[0])) { return $parts[0]; }
+    if (is_file($filename) && is_readable($filename)) {
+        $content = @file_get_contents($filename);
+        if ($content !== false) {
+            $content = trim($content);
+            $parts = preg_split('/\s+/', $content, 2);
+            if (!empty($parts[0])) { return $parts[0]; }
         }
     }
+    return null;
 }
 
-/**
- * Прочитать доступные версии прошивок из локальных файлов.
- * Возвращает массив: ['ROS6 stable' => '6.49.23', 'ROS7 long-term' => '7.23.8', ...]
- */
 function readAvailableFirmwareVersions($CFG): array
 {
     $raw = [
@@ -66,26 +62,28 @@ function readAvailableFirmwareVersions($CFG): array
 try {
     switch ($action) {
         case 'add_device':
-            $serial  = trim($_POST['serial']  ?? '');
-            $model   = trim($_POST['model']   ?? '');
-            $comment = trim($_POST['comment'] ?? '');
-            $allowed = parseVersionsInput($_POST['allowed'] ?? '');
+            $serial     = trim($_POST['serial']  ?? '');
+            $deviceName = trim($_POST['name']    ?? '');
+            $model      = trim($_POST['model']   ?? '');
+            $comment    = trim($_POST['comment'] ?? '');
+            $allowed    = parseVersionsInput($_POST['allowed'] ?? '');
             if ($serial === '') {
                 $flash = 'Serial is required';
             } else {
-                $id = deviceAdd($serial, $model, $comment, $allowed);
+                $id = deviceAdd($serial, $model, $deviceName, $comment, $allowed);
                 $flash = $id ? "Device added (ID $id)" : 'Serial already exists';
             }
             break;
 
         case 'update_device':
             $id = (int)($_POST['id'] ?? 0);
-            $model   = trim($_POST['model']   ?? '');
-            $comment = trim($_POST['comment'] ?? '');
-            $allowed = parseVersionsInput($_POST['allowed'] ?? '');
-            $ips     = parseVersionsInput($_POST['ips'] ?? ''); // Парсим IP аналогично версиям
+            $deviceName = trim($_POST['name']    ?? '');
+            $model      = trim($_POST['model']   ?? '');
+            $comment    = trim($_POST['comment'] ?? '');
+            $allowed    = parseVersionsInput($_POST['allowed'] ?? '');
+            $ips        = parseVersionsInput($_POST['ips'] ?? '');
             if ($id > 0) {
-                deviceUpdate($id, $model, $comment, $allowed);
+                deviceUpdate($id, $model, $deviceName, $comment, $allowed);
                 deviceUpdateIps($id, $ips);
                 $flash = "Device #$id updated";
             }
@@ -207,6 +205,8 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
   .vtag{background:var(--panel2);padding:2px 8px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px}
   .comment{color:var(--muted);font-size:12px;font-style:italic;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .comment:empty::before{content:'—';opacity:.5}
+  .device-name{color:var(--text);font-size:12px;font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .device-name:empty::before{content:'—';opacity:.5}
   .ips-cell{font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;min-width:110px}
 .fw-cell{
   font-family:ui-monospace,Menlo,monospace;
@@ -353,7 +353,7 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
       <h2>Devices <span class="count"><?= count($devices) ?></span></h2>
 
       <form class="search" method="get">
-        <input type="text" name="q" placeholder="Search by serial, model, comment or IP…" value="<?= htmlspecialchars($search) ?>">
+        <input type="text" name="q" placeholder="Search by serial, name, model, comment or IP…" value="<?= htmlspecialchars($search) ?>">
         <button class="btn sec" type="submit">Search</button>
         <?php if ($search !== ''): ?>
           <a href="?" class="btn sec" style="text-decoration:none;display:inline-block">Clear</a>
@@ -388,6 +388,7 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
             <tr>
               <th class="cb-cell"><input type="checkbox" id="selectAll" title="Select all" onclick="toggleAll(this)"></th>
               <th>Serial</th>
+              <th>Name</th>
               <th>Model</th>
               <th>Firmware</th>
               <th>IP addresses</th>
@@ -413,6 +414,7 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
                        onclick="onRowCheck(this)">
               </td>
               <td class="mono"><?= htmlspecialchars($d['serial']) ?></td>
+              <td class="device-name" title="<?= htmlspecialchars($d['device_name']) ?>"><?= htmlspecialchars($d['device_name']) ?></td>
               <td><?= htmlspecialchars($d['model'] ?: '—') ?></td>
               <td class="fw-cell">
                 <?php if ($bootFw === '' && $upgFw === ''): ?>
@@ -476,6 +478,10 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
         <div>
           <label>Serial number *</label>
           <input type="text" name="serial" required placeholder="ABC123DEF456">
+        </div>
+        <div>
+          <label>Device name</label>
+          <input type="text" name="name" placeholder="office-gw-1">
         </div>
         <div>
           <label>Model</label>
@@ -610,6 +616,10 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
     <form method="post">
       <input type="hidden" name="action" value="update_device">
       <input type="hidden" name="id" value="<?= $editDevice['id'] ?>">
+      <div>
+        <label>Device name</label>
+        <input type="text" name="name" value="<?= htmlspecialchars($editDevice['device_name']) ?>" placeholder="office-gw-1">
+      </div>
       <div>
         <label>Model</label>
         <input type="text" name="model" value="<?= htmlspecialchars($editDevice['model']) ?>">

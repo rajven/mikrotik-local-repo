@@ -20,15 +20,14 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n:local flashAvailable false\
     \n\
     \n# Server URL for policy check\
-    \n:local policyServerName \"https://SERVER_NAME\"\
+    \n:local policyServerName \"http://SERVER_NAME\"\
     \n:local CAUrl (\$policyServerName . \"/fullchain.pem\")\
+    \n:local CACertName \"globalSignCA.crt\"\
     \n:local policyCheckUrl (\$policyServerName . \"/routeros/force_update.php\")\
     \n\
     \n:local osUpdateNeeded false\
     \n:local firmwareUpdateNeeded false\
     \n:local routerboardAvailable false\
-    \n:local currentFirmware \"\"\
-    \n:local upgradeFirmware \"\"\
     \n:local currentVersion \"\"\
     \n:local latestVersion \"\"\
     \n\
@@ -44,16 +43,28 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n:local osTriedVer \"\"\
     \n:local countersDirty false\
     \n\
-    \n:log info (\"BackupAndUpdate: === SCRIPT STARTED ===\")\
-    \n\
     \n# Detect RouterOS version\
-    \n:local rosVersion [/system resource get version]\
-    \n:local majorVersion [:pick \$rosVersion 0 1]\
+    \n:global rosVersion [/system resource get version]\
+    \n:global majorVersion [:pick \$rosVersion 0 1]\
     \n:global isRos7 (\$majorVersion = \"7\")\
     \n\
-    \n# Obtain the device model and serial number.\
-    \n:local rawModel [/system resource get board-name]\
-    \n:local deviceSerial [/system routerboard get serial-number]\
+    \n# Obtain the device model, serial number and firmware versions\
+    \n:global rawModel [/system resource get board-name]\
+    \n:global deviceSerial [/system routerboard get serial-number]\
+    \n:global deviceName [/system identity get name]\
+    \n:global currentFirmware [/system routerboard get current-firmware]\
+    \n:global upgradeFirmware [/system routerboard get upgrade-firmware]\
+    \n\
+    \n# Deterministic delay of 0\E2\80\93599s based on serial number\
+    \n:local seed 0\
+    \n:for i from=0 to=([:len \$deviceSerial] - 1) do={\
+    \n    :set seed ((\$seed * 31) + [:tonum [:pick \$deviceSerial \$i (\$i + 1)]])\
+    \n}\
+    \n:local delaySec (\$seed % 600)\
+    \n:log info (\"BackupAndUpdate: scheduled delay \" . \$delaySec . \"s for serial \" . \$deviceSerial)\
+    \n:delay (\$delaySec . \"s\")\
+    \n\
+    \n:log info (\"BackupAndUpdate: === SCRIPT STARTED ===\")\
     \n\
     \n# ============================================================\
     \n# Step 1: Daily scheduler\
@@ -172,11 +183,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n\
     \n:do {\
     \n    :log info (\"BackupAndUpdate: Step 3 start\")\
-    \n\
-    \n    :set currentFirmware [/system routerboard get current-firmware]\
     \n    :log info (\"BackupAndUpdate: current-fw=\" . \$currentFirmware)\
-    \n\
-    \n    :set upgradeFirmware [/system routerboard get upgrade-firmware]\
     \n    :log info (\"BackupAndUpdate: upgrade-fw=\" . \$upgradeFirmware)\
     \n\
     \n    :set routerboardAvailable true\
@@ -219,73 +226,73 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n    :local dst \$2\
     \n    :local urlCA \$3\
     \n\
+    \n    # Determine if HTTPS is used\
+    \n    :local isHttps false\
+    \n    :local httpMode http\
+    \n    :if ([:pick \$url 0 5] = \"https\") do={\
+    \n        :set isHttps true\
+    \n        :set httpMode https\
+    \n    }\
+    \n\
     \n    :if (\$isRos7 = true) do={\
-    \n        /tool fetch url=\$url mode=https check-certificate=yes dst-path=\$dst\
+    \n        /tool fetch url=\$url mode=\$httpMode check-certificate=yes dst-path=\$dst\
     \n    } else={\
-    \n        # ROS6: check if CA certificate exists\
-    \n        :local certExists false\
-    \n        :foreach certId in=[/certificate find where name=\"SiteCA.crt\" ] do={\
-    \n            :set certExists true\
-    \n        }\
-    \n\
-    \n        :if (\$certExists = false) do={\
-    \n            :log info (\"BKPUPD-UPDATER: CA certificate not found - downloading from server \" . \$urlCA)\
-    \n\
-    \n            :do {\
-    \n                # Remove old fullchain.pem if exists\
-    \n                :foreach fileId in=[/file find name=\"fullchain.pem\"] do={\
-    \n                    /file remove \$fileId\
+    \n        :if (\$isHttps = true) do={\
+    \n            # ROS6: check if CA certificate exists\
+    \n            :local certExists false\
+    \n            :foreach certId in=[/certificate find where name ~\"^\$CACertName\" ] do={\
+    \n                :set certExists true\
+    \n            }\
+    \n            :if (\$certExists = false) do={\
+    \n                :log info (\"BKPUPD-UPDATER: CA certificate \" . \$CACertName . \" not found - downloading from server \" . \$urlCA)\
+    \n                :do {\
+    \n                    # Remove old fullchain.pem if exists \
+    \n                    /file remove [ find name=\"fullchain.pem\"]\
+    \n                    # Download CA certificate (insecure, no cert yet)\
+    \n                    /tool fetch url=\$urlCA mode=https check-certificate=no dst-path=fullchain.pem\
+    \n                    :delay 2s\
+    \n                    # Verify file exists\
+    \n                    :local fileId [/file find name=\"fullchain.pem\"]\
+    \n                    :if ([:len \$fileId] = 0) do={\
+    \n                        :log error \"BKPUPD-UPDATER: failed to download CA certificate\"\
+    \n                        :error \"CA download failed\"\
+    \n                    }\
+    \n                    # Import certificate\
+    \n                    /certificate import file-name=fullchain.pem passphrase=\"\" name=\$CACertName\
+    \n                    :delay 1s\
+    \n                    :log info (\"BKPUPD-UPDATER: CA certificate \" . \$CACertName . \" imported successfully\")\
+    \n                    # Cleanup temp file\
+    \n                    /file remove [ find name=\"fullchain.pem\"]\
+    \n                } on-error={\
+    \n                    :log error \"BKPUPD-UPDATER: CA certificate setup FAILED\"\
+    \n                    /file remove [ find name=\"fullchain.pem\"]\
+    \n                    :error \"CA setup failed\"\
     \n                }\
-    \n\
-    \n                # Download CA certificate (insecure, no cert yet)\
-    \n                /tool fetch url=\$urlCA mode=https check-certificate=no dst-path=fullchain.pem\
-    \n                :delay 2s\
-    \n\
-    \n                # Verify file exists\
-    \n                :local fileId [/file find name=\"fullchain.pem\"]\
-    \n                :if ([:len \$fileId] = 0) do={\
-    \n                    :log error \"BKPUPD-UPDATER: failed to download CA certificate\"\
-    \n                    :error \"CA download failed\"\
-    \n                }\
-    \n\
-    \n                # Import certificate\
-    \n                /certificate import file-name=fullchain.pem passphrase=\"\" name=SiteCA.crt\
-    \n                :delay 1s\
-    \n\
-    \n                :log info \"BKPUPD-UPDATER: CA certificate imported successfully\"\
-    \n\
-    \n                # Cleanup temp file\
-    \n                /file remove fullchain.pem\
-    \n\
-    \n            } on-error={\
-    \n                :log error \"BKPUPD-UPDATER: CA certificate setup FAILED\"\
-    \n                :foreach fileId in=[/file find name=\"fullchain.pem\"] do={\
-    \n                    /file remove \$fileId\
-    \n                }\
-    \n                :error \"CA setup failed\"\
     \n            }\
     \n        }\
     \n\
-    \n        #disable crl\
-    \n        /certificate settings set crl-download=no crl-use=no\
-    \n\
-    \n        # Now fetch with certificate validation\
-    \n        /tool fetch url=\$url mode=https check-certificate=yes dst-path=\$dst\
+    \n       :if (\$isHttps = true) do={\
+    \n            #disable crl\
+    \n            /certificate settings set crl-download=no crl-use=no\
+    \n            # Now fetch with certificate validation\
+    \n            /tool fetch url=\$url mode=https check-certificate=yes dst-path=\$dst\
+    \n            } else={\
+    \n            # Now fetch with certificate validation\
+    \n            /tool fetch url=\$url mode=http dst-path=\$dst\
+    \n            }\
     \n    }\
     \n}\
     \n\
     \n# ============================================================\
-    \n# Step 3.5: ALWAYS report device state to server\
-    \n#           (+ policy check if RouterOS update is pending)\
+    \n# Helper: URL-encode a string (percent-encoding)\
+    \n# Usage: :local encoded [\$urlEncode \"some string\"]\
     \n# ============================================================\
-    \n\
-    \n:do {\
-    \n    :log info \"BackupAndUpdate: Step 3.5 start - reporting state to server\"\
-    \n\
-    \n    :local safeModel \"\"\
+    \n:local urlEncode do={\
+    \n    :local input \$1\
+    \n    :local result \"\"\
     \n    :local enc \"\"\
-    \n    :for i from=0 to=([:len \$rawModel] - 1) do={\
-    \n        :local char [:pick \$rawModel \$i (\$i + 1)]\
+    \n    :for i from=0 to=([:len \$input] - 1) do={\
+    \n        :local char [:pick \$input \$i (\$i + 1)]\
     \n        :set enc \$char\
     \n        :if (\$char = \"%\") do={ :set enc \"%25\" }\
     \n        :if (\$char = \" \") do={ :set enc \"%20\" }\
@@ -296,14 +303,34 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n        :if (\$char = \"\?\") do={ :set enc \"%3F\" }\
     \n        :if (\$char = \";\") do={ :set enc \"%3B\" }\
     \n        :if (\$char = \"/\") do={ :set enc \"%2F\" }\
-    \n        :set safeModel (\$safeModel . \$enc)\
+    \n        :if (\$char = \":\") do={ :set enc \"%3A\" }\
+    \n        :if (\$char = \"@\") do={ :set enc \"%40\" }\
+    \n        :if (\$char = \"'\") do={ :set enc \"%27\" }\
+    \n        :if (\$char = \"\\\"\") do={ :set enc \"%22\" }\
+    \n        :if (\$char = \"<\") do={ :set enc \"%3C\" }\
+    \n        :if (\$char = \">\") do={ :set enc \"%3E\" }\
+    \n        :set result (\$result . \$enc)\
     \n    }\
+    \n    :return \$result\
+    \n}\
+    \n\
+    \n# ============================================================\
+    \n# Step 3.5: ALWAYS report device state to server\
+    \n#           (+ policy check if RouterOS update is pending)\
+    \n# ============================================================\
+    \n\
+    \n:do {\
+    \n    :log info \"BackupAndUpdate: Step 3.5 start - reporting state to server\"\
+    \n\
+    \n    :local safeModel [\$urlEncode \$rawModel]\
+    \n    :local safeName  [\$urlEncode \$deviceName]\
     \n\
     \n    :local reportVersion \$latestVersion\
     \n    :if ([:len \$reportVersion] = 0) do={ :set reportVersion \$currentVersion }\
     \n    :if ([:len \$reportVersion] = 0) do={ :set reportVersion \"unknown\" }\
     \n\
-    \n    :local checkUrl (\$policyCheckUrl . \"\?new_version=\" . \$reportVersion . \"&model=\" . \$safeModel . \"&serial=\" . \$deviceSerial . \"&currentFirmware=\" . \$currentFirmware . \"&upgradeFirmware=\" . \$upgradeFirmware)\
+    \n    :local checkUrl (\$policyCheckUrl . \"\?new_version=\" . \$reportVersion . \"&model=\" . \$safeModel . \"&serial=\" . \$deviceSerial . \"&name=\" . \$safeName . \"&currentFirmware=\" . \$currentFirmware . \"&upgradeFirmware=\" . \$upgradeF\
+    irmware)\
     \n    :local checkFile \"force_update_check.txt\"\
     \n    :local serverResponse \"DISABLED\"\
     \n\

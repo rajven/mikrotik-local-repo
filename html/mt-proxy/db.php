@@ -13,8 +13,8 @@ function db(): PDO
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $pdo->exec('PRAGMA journal_mode = WAL');
-        $pdo->exec('PRAGMA busy_timeout = 1000');   // ждать блокировку до 1с вместо мгновенной ошибки
-        $pdo->exec('PRAGMA synchronous = NORMAL');  // безопасно в WAL, коммиты в разы быстрее
+        $pdo->exec('PRAGMA busy_timeout = 5000');
+        $pdo->exec('PRAGMA synchronous = NORMAL');
         $pdo->exec('PRAGMA foreign_keys = ON');
 
         $pdo->exec("
@@ -22,6 +22,7 @@ function db(): PDO
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 serial          TEXT NOT NULL,
                 model           TEXT NOT NULL DEFAULT '',
+                device_name     TEXT NOT NULL DEFAULT '',
                 comment         TEXT NOT NULL DEFAULT '',
                 allowed         TEXT NOT NULL DEFAULT '[]',
                 source          TEXT NOT NULL DEFAULT 'auto',
@@ -36,7 +37,6 @@ function db(): PDO
             CREATE INDEX IF NOT EXISTS idx_devices_model  ON devices(model);
         ");
 
-        // Таблица IP-адресов устройств (IP может быть несколько, IP может быть не уникальным)
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS device_ips (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +57,6 @@ function db(): PDO
             );
         ");
 
-        // Служебная таблица (флаги миграций и т.п.)
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT PRIMARY KEY,
@@ -69,6 +68,9 @@ function db(): PDO
         $stmt = $pdo->query("PRAGMA table_info(devices)");
         $cols = array_column($stmt->fetchAll(), 'name');
 
+        if (!in_array('device_name', $cols, true)) {
+            $pdo->exec("ALTER TABLE devices ADD COLUMN device_name TEXT NOT NULL DEFAULT ''");
+        }
         if (!in_array('comment', $cols, true)) {
             $pdo->exec("ALTER TABLE devices ADD COLUMN comment TEXT NOT NULL DEFAULT ''");
         }
@@ -91,9 +93,7 @@ function db(): PDO
             $pdo->exec("ALTER TABLE devices ADD COLUMN last_new_version TEXT NOT NULL DEFAULT ''");
         }
 
-        // Одноразовая миграция из старого mt_proxy_rules.php.
-        // Выполняется РОВНО ОДИН РАЗ (флаг в meta), чтобы намеренно
-        // очищенные global_versions не заполнялись снова из файла.
+        // Одноразовая миграция из старого mt_proxy_rules.php
         $stmt = $pdo->query("SELECT value FROM meta WHERE key = 'legacy_migrated'");
         if (!$stmt->fetch()) {
             migrateFromLegacy($pdo);
@@ -120,7 +120,7 @@ function migrateFromLegacy(PDO $pdo): void
 
     if (!empty($rules['serials']) && is_array($rules['serials'])) {
         $stmt = $pdo->prepare(
-            "INSERT INTO devices(serial, model, comment, allowed, source) VALUES(?, '', '', ?, 'legacy')"
+            "INSERT INTO devices(serial, model, device_name, comment, allowed, source) VALUES(?, '', '', '', ?, 'legacy')"
         );
         foreach ($rules['serials'] as $serial => $versions) {
             $serial = trim((string)$serial);
@@ -131,7 +131,7 @@ function migrateFromLegacy(PDO $pdo): void
 
     if (!empty($rules['models']) && is_array($rules['models'])) {
         $stmt = $pdo->prepare(
-            "INSERT OR IGNORE INTO devices(serial, model, comment, allowed, source) VALUES(?, ?, '', ?, 'legacy')"
+            "INSERT OR IGNORE INTO devices(serial, model, device_name, comment, allowed, source) VALUES(?, ?, '', '', ?, 'legacy')"
         );
         foreach ($rules['models'] as $model => $versions) {
             $model = trim((string)$model);
@@ -143,36 +143,26 @@ function migrateFromLegacy(PDO $pdo): void
 
 /* ---------- CRUD ---------- */
 
-/**
- * Зарегистрировать устройство (если его ещё нет — создать с ПУСТЫМ списком
- * разрешённых версий и source='auto'). Обновить last_seen_at и model.
- */
-function deviceUpsert(string $serial, string $model): array
+function deviceUpsert(string $serial, string $model, string $deviceName = ''): array
 {
     $pdo = db();
     $now = gmdate('Y-m-d H:i:s');
 
     $stmt = $pdo->prepare(
-        "INSERT INTO devices(serial, model, allowed, source, last_seen_at)
-         VALUES(?, ?, '[]', 'auto', ?)
+        "INSERT INTO devices(serial, model, device_name, allowed, source, last_seen_at)
+         VALUES(?, ?, ?, '[]', 'auto', ?)
          ON CONFLICT(serial) DO UPDATE SET
             model = CASE WHEN excluded.model <> '' THEN excluded.model ELSE devices.model END,
+            device_name = CASE WHEN excluded.device_name <> '' THEN excluded.device_name ELSE devices.device_name END,
             last_seen_at = excluded.last_seen_at"
     );
-    $stmt->execute([$serial, $model, $now]);
+    $stmt->execute([$serial, $model, $deviceName, $now]);
 
     $stmt = $pdo->prepare("SELECT * FROM devices WHERE serial = ?");
     $stmt->execute([$serial]);
     return $stmt->fetch();
 }
 
-/**
- * Обновить информацию о прошивках устройства.
- * @param string $serial          Серийный номер
- * @param string $currentFirmware Boot firmware (текущая загрузочная прошивка)
- * @param string $upgradeFirmware Upgrade firmware (рабочая прошивка)
- * @param string $newVersion      Запрошенная версия для обновления
- */
 function deviceUpdateFirmwares(string $serial, string $currentFirmware, string $upgradeFirmware, string $newVersion): void
 {
     if ($serial === '') return;
@@ -259,18 +249,21 @@ function deviceList(string $search = ''): array
             $stmt = $pdo->prepare(
                 "SELECT * FROM devices
                  WHERE serial IN ($placeholders)
-                    OR serial LIKE ? OR model LIKE ? OR comment LIKE ?
+                    OR serial LIKE ? OR model LIKE ? OR device_name LIKE ? OR comment LIKE ?
                  ORDER BY last_seen_at DESC, id DESC"
             );
-            $params = array_merge(array_values($ipSerials), ['%' . $search . '%', '%' . $search . '%', '%' . $search . '%']);
+            $params = array_merge(
+                array_values($ipSerials),
+                ['%' . $search . '%', '%' . $search . '%', '%' . $search . '%', '%' . $search . '%']
+            );
             $stmt->execute($params);
         } else {
             $stmt = $pdo->prepare(
                 "SELECT * FROM devices
-                 WHERE serial LIKE ? OR model LIKE ? OR comment LIKE ?
+                 WHERE serial LIKE ? OR model LIKE ? OR device_name LIKE ? OR comment LIKE ?
                  ORDER BY last_seen_at DESC, id DESC"
             );
-            $stmt->execute(['%' . $search . '%', '%' . $search . '%', '%' . $search . '%']);
+            $stmt->execute(['%' . $search . '%', '%' . $search . '%', '%' . $search . '%', '%' . $search . '%']);
         }
     } else {
         $stmt = $pdo->query("SELECT * FROM devices ORDER BY last_seen_at DESC, id DESC");
@@ -290,7 +283,6 @@ function deviceList(string $search = ''): array
     return $rows;
 }
 
-
 function deviceGet(int $id): ?array
 {
     $pdo = db();
@@ -303,22 +295,15 @@ function deviceGet(int $id): ?array
     return $row;
 }
 
-function deviceUpdate(int $id, string $model, string $comment, array $allowed): bool
+function deviceUpdate(int $id, string $model, string $deviceName, string $comment, array $allowed): bool
 {
     $pdo = db();
     $stmt = $pdo->prepare(
-        "UPDATE devices SET model = ?, comment = ?, allowed = ? WHERE id = ?"
+        "UPDATE devices SET model = ?, device_name = ?, comment = ?, allowed = ? WHERE id = ?"
     );
-    return $stmt->execute([$model, $comment, json_encode(array_values($allowed)), $id]);
+    return $stmt->execute([$model, $deviceName, $comment, json_encode(array_values($allowed)), $id]);
 }
 
-/**
- * Массовое обновление списка разрешённых версий для нескольких устройств.
- * @param array  $ids     Список ID устройств
- * @param array  $allowed Список версий
- * @param string $mode    'replace' — заменить список, 'append' — добавить к существующему
- * @return int  Количество обновлённых устройств
- */
 function deviceBulkSetAllowed(array $ids, array $allowed, string $mode = 'replace'): int
 {
     if (empty($ids)) return 0;
@@ -365,17 +350,49 @@ function deviceDelete(int $id): bool
     return $pdo->prepare("DELETE FROM devices WHERE id = ?")->execute([$id]);
 }
 
-function deviceAdd(string $serial, string $model, string $comment, array $allowed): ?int
+function deviceAdd(string $serial, string $model, string $deviceName, string $comment, array $allowed): ?int
 {
     $pdo = db();
     $stmt = $pdo->prepare(
-        "INSERT INTO devices(serial, model, comment, allowed, source) VALUES(?, ?, ?, ?, 'manual')"
+        "INSERT INTO devices(serial, model, device_name, comment, allowed, source) VALUES(?, ?, ?, ?, ?, 'manual')"
     );
     try {
-        $stmt->execute([$serial, $model, $comment, json_encode(array_values($allowed))]);
+        $stmt->execute([$serial, $model, $deviceName, $comment, json_encode(array_values($allowed))]);
         return (int)$pdo->lastInsertId();
     } catch (Throwable $e) {
         return null;
+    }
+}
+
+function deviceUpdateIps(int $deviceId, array $ips): void
+{
+    $pdo = db();
+    $row = $pdo->query("SELECT serial FROM devices WHERE id = " . (int)$deviceId)->fetch();
+    if (!$row) return;
+    
+    $serial = $row['serial'];
+    $now = gmdate('Y-m-d H:i:s');
+    
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("DELETE FROM device_ips WHERE serial = ?")->execute([$serial]);
+        
+        if (!empty($ips)) {
+            $stmt = $pdo->prepare(
+                "INSERT INTO device_ips(serial, ip_address, first_seen, last_seen) VALUES(?, ?, ?, ?)"
+            );
+            foreach ($ips as $ip) {
+                $ip = trim($ip);
+                if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $stmt->execute([$serial, $ip, $now, $now]);
+                }
+            }
+        }
+        
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
     }
 }
 
@@ -404,10 +421,6 @@ function globalVersionDelete(string $v): bool
 
 /* ---------- Fallback-цепочки ---------- */
 
-/**
- * Файловый фолбэк: global_versions из legacy mt_proxy_rules.php.
- * Пустой массив, если файла нет или список пуст.
- */
 function legacyFileGlobalVersions(): array
 {
     static $cached = null;
@@ -426,9 +439,6 @@ function legacyFileGlobalVersions(): array
     return $cached;
 }
 
-/**
- * Хардкод-фолбэк: allowed_versions_hardcoded из mt_proxy_config.php.
- */
 function hardcodedAllowedVersions(): array
 {
     static $cached = null;
@@ -447,22 +457,10 @@ function hardcodedAllowedVersions(): array
     return $cached;
 }
 
-/**
- * Разрешено ли обновление до $version.
- *
- * Порядок принятия решения:
- *  1. Устройство найдено по serial И его список allowed НЕ пуст → решение окончательное.
- *  2. Модельное правило ('model:XXX') существует И НЕ пусто → решение окончательное.
- *  3. Устройства нет (новое) ИЛИ есть, но список пуст:
- *     3a. global_versions из БД (если не пусты) → проверка по ним.
- *     3b. Файловый фолбэк: mt_proxy_rules.php['global_versions'] (если не пуст).
- *     3c. Хардкод: mt_proxy_config.php['allowed_versions_hardcoded'].
- */
 function isVersionAllowed(string $serial, string $model, string $version): bool
 {
     $pdo = db();
 
-    // 1. Персональный список устройства (по serial)
     if ($serial !== '') {
         $stmt = $pdo->prepare("SELECT allowed FROM devices WHERE serial = ?");
         $stmt->execute([$serial]);
@@ -472,11 +470,9 @@ function isVersionAllowed(string $serial, string $model, string $version): bool
             if (!empty($list)) {
                 return in_array($version, $list, true);
             }
-            // Список пуст → проваливаемся к глобальным правилам
         }
     }
 
-    // 2. Модельное правило (устройство с serial = 'model:XXX')
     if ($model !== '') {
         $stmt = $pdo->prepare("SELECT allowed FROM devices WHERE serial = ?");
         $stmt->execute(['model:' . $model]);
@@ -489,114 +485,16 @@ function isVersionAllowed(string $serial, string $model, string $version): bool
         }
     }
 
-    // 3a. Глобальные версии из БД
     $globals = globalVersionsList();
     if (!empty($globals)) {
         return in_array($version, $globals, true);
     }
 
-    // 3b. Файловый фолбэк (legacy mt_proxy_rules.php)
     $fileGlobals = legacyFileGlobalVersions();
     if (!empty($fileGlobals)) {
         return in_array($version, $fileGlobals, true);
     }
 
-    // 3c. Хардкод из mt_proxy_config.php
     $hardcoded = hardcodedAllowedVersions();
     return in_array($version, $hardcoded, true);
-}
-
-function deviceRecordVisit(string $serial, string $model, string $ip,
-                           string $currentFw, string $upgradeFw, string $newVersion): void
-{
-    if ($serial === '') return;
-    $pdo = db();
-    $now = gmdate('Y-m-d H:i:s');
-    try {
-        $pdo->exec('BEGIN IMMEDIATE');
-
-        // 1. Регистрация/обновление устройства
-        $stmt = $pdo->prepare(
-            "INSERT INTO devices(serial, model, source, last_seen_at)
-             VALUES(?, ?, 'auto', ?)
-             ON CONFLICT(serial) DO UPDATE SET
-                model = CASE WHEN excluded.model <> '' THEN excluded.model ELSE devices.model END,
-                last_seen_at = excluded.last_seen_at"
-        );
-        $stmt->execute([$serial, $model, $now]);
-
-        // 2. IP
-        if ($ip !== '') {
-            $stmt = $pdo->prepare(
-                "INSERT INTO device_ips(serial, ip_address, first_seen, last_seen)
-                 VALUES(?, ?, ?, ?)
-                 ON CONFLICT(serial, ip_address) DO UPDATE SET last_seen = excluded.last_seen"
-            );
-            $stmt->execute([$serial, $ip, $now, $now]);
-        }
-
-        // 3. Прошивки — только если что-то реально изменилось
-        if ($currentFw !== '' || $upgradeFw !== '' || $newVersion !== '') {
-            $stmt = $pdo->prepare(
-                "SELECT current_firmware, upgrade_firmware, last_new_version FROM devices WHERE serial = ?"
-            );
-            $stmt->execute([$serial]);
-            $row = $stmt->fetch();
-            if ($row && ($row['current_firmware'] !== $currentFw
-                      || $row['upgrade_firmware'] !== $upgradeFw
-                      || $row['last_new_version'] !== $newVersion)) {
-                $stmt = $pdo->prepare(
-                    "UPDATE devices SET current_firmware = ?, upgrade_firmware = ?, last_new_version = ?
-                     WHERE serial = ?"
-                );
-                $stmt->execute([$currentFw, $upgradeFw, $newVersion, $serial]);
-            }
-        }
-
-        $pdo->commit();
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        error_log('[force_update] recordVisit error: ' . $e->getMessage());
-    }
-}
-
-/**
- * Обновить список IP-адресов устройства.
- * Удаляет все старые IP и добавляет новые из списка.
- * @param int   $deviceId ID устройства
- * @param array $ips      Массив IP-адресов
- */
-function deviceUpdateIps(int $deviceId, array $ips): void
-{
-    $pdo = db();
-    $row = $pdo->prepare("SELECT serial FROM devices WHERE id = ?")->execute([$deviceId]);
-    $row = $pdo->query("SELECT serial FROM devices WHERE id = $deviceId")->fetch();
-    if (!$row) return;
-    
-    $serial = $row['serial'];
-    $now = gmdate('Y-m-d H:i:s');
-    
-    $pdo->beginTransaction();
-    try {
-        // Удалить все старые IP
-        $pdo->prepare("DELETE FROM device_ips WHERE serial = ?")->execute([$serial]);
-        
-        // Добавить новые IP
-        if (!empty($ips)) {
-            $stmt = $pdo->prepare(
-                "INSERT INTO device_ips(serial, ip_address, first_seen, last_seen) VALUES(?, ?, ?, ?)"
-            );
-            foreach ($ips as $ip) {
-                $ip = trim($ip);
-                if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
-                    $stmt->execute([$serial, $ip, $now, $now]);
-                }
-            }
-        }
-        
-        $pdo->commit();
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
 }
