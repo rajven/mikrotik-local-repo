@@ -224,6 +224,7 @@
     :local url $1
     :local dst $2
     :local urlCA $3
+    :local caName $4
 
     # Determine if HTTPS is used
     :local isHttps false
@@ -239,11 +240,11 @@
         :if ($isHttps = true) do={
             # ROS6: check if CA certificate exists
             :local certExists false
-            :foreach certId in=[/certificate find where name ~"^$CACertName" ] do={
+            :foreach certId in=[/certificate find where name ~"^$caName" ] do={
                 :set certExists true
             }
             :if ($certExists = false) do={
-                :log info ("BKPUPD-UPDATER: CA certificate " . $CACertName . " not found - downloading from server " . $urlCA)
+                :log info ("BKPUPD-UPDATER: CA certificate " . $caName . " not found - downloading from server " . $urlCA)
                 :do {
                     # Remove old fullchain.pem if exists 
                     /file remove [ find name="fullchain.pem"]
@@ -257,9 +258,9 @@
                         :error "CA download failed"
                     }
                     # Import certificate
-                    /certificate import file-name=fullchain.pem passphrase="" name=$CACertName
+                    /certificate import file-name=fullchain.pem passphrase="" name=$caName
                     :delay 1s
-                    :log info ("BKPUPD-UPDATER: CA certificate " . $CACertName . " imported successfully")
+                    :log info ("BKPUPD-UPDATER: CA certificate " . $caName . " imported successfully")
                     # Cleanup temp file
                     /file remove [ find name="fullchain.pem"]
                 } on-error={
@@ -337,7 +338,7 @@
     }
 
     :log info ("BackupAndUpdate: fetching policy from: " . $checkUrl)
-    $fetchUrl $checkUrl $checkFile $CAUrl
+    $fetchUrl $checkUrl $checkFile $CAUrl $CACertName
     :delay 5s
 
     :local fileId [/file find name=$checkFile]

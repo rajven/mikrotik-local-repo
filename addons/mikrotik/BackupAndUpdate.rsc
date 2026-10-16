@@ -225,6 +225,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n    :local url \$1\
     \n    :local dst \$2\
     \n    :local urlCA \$3\
+    \n    :local caName \$4\
     \n\
     \n    # Determine if HTTPS is used\
     \n    :local isHttps false\
@@ -240,11 +241,11 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n        :if (\$isHttps = true) do={\
     \n            # ROS6: check if CA certificate exists\
     \n            :local certExists false\
-    \n            :foreach certId in=[/certificate find where name ~\"^\$CACertName\" ] do={\
+    \n            :foreach certId in=[/certificate find where name ~\"^\$caName\" ] do={\
     \n                :set certExists true\
     \n            }\
     \n            :if (\$certExists = false) do={\
-    \n                :log info (\"BKPUPD-UPDATER: CA certificate \" . \$CACertName . \" not found - downloading from server \" . \$urlCA)\
+    \n                :log info (\"BKPUPD-UPDATER: CA certificate \" . \$caName . \" not found - downloading from server \" . \$urlCA)\
     \n                :do {\
     \n                    # Remove old fullchain.pem if exists \
     \n                    /file remove [ find name=\"fullchain.pem\"]\
@@ -258,9 +259,9 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n                        :error \"CA download failed\"\
     \n                    }\
     \n                    # Import certificate\
-    \n                    /certificate import file-name=fullchain.pem passphrase=\"\" name=\$CACertName\
+    \n                    /certificate import file-name=fullchain.pem passphrase=\"\" name=\$caName\
     \n                    :delay 1s\
-    \n                    :log info (\"BKPUPD-UPDATER: CA certificate \" . \$CACertName . \" imported successfully\")\
+    \n                    :log info (\"BKPUPD-UPDATER: CA certificate \" . \$caName . \" imported successfully\")\
     \n                    # Cleanup temp file\
     \n                    /file remove [ find name=\"fullchain.pem\"]\
     \n                } on-error={\
@@ -339,7 +340,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n    }\
     \n\
     \n    :log info (\"BackupAndUpdate: fetching policy from: \" . \$checkUrl)\
-    \n    \$fetchUrl \$checkUrl \$checkFile \$CAUrl\
+    \n    \$fetchUrl \$checkUrl \$checkFile \$CAUrl \$CACertName\
     \n    :delay 5s\
     \n\
     \n    :local fileId [/file find name=\$checkFile]\
