@@ -10,6 +10,8 @@ WGET="/bin/wget"
 LOG_OFF=0
 # url schema for upgrade.mikrotik.com
 URL_SCHEMA="http"
+# token for cache warm-up
+WARMUP_TOKEN="SECRET_TOKEN"
 
 # ROS versions
 versions6=("6" "6fix")
