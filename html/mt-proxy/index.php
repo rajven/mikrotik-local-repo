@@ -3,6 +3,7 @@
  * index.php — веб-интерфейс управления устройствами и глобальными версиями.
  */
 require __DIR__ . '/db.php';
+$CFG = require __DIR__ . '/mt_proxy_config.php';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $flash  = '';
@@ -17,6 +18,33 @@ function parseVersionsInput(string $raw): array
         array_map('trim', explode("\n", $raw)),
         fn($v) => $v !== ''
     )));
+}
+
+function readROSVersionFile($filename)
+{
+if (is_file($filename) && is_readable($filename)) {
+    $content = @file_get_contents($filename);
+    if ($content !== false) {
+        $content = trim($content);
+        // Формат: "7.23.8 1791452776" — берём первую часть
+        $parts = preg_split('/\s+/', $content, 2);
+        if (!empty($parts[0])) { return $parts[0]; }
+        }
+    }
+}
+
+/**
+ * Прочитать доступные версии прошивок из локальных файлов.
+ * Возвращает массив: ['ROS6 stable' => '6.49.23', 'ROS7 long-term' => '7.23.8', ...]
+ */
+function readAvailableFirmwareVersions($CFG): array
+{
+    $versions = [];
+    $versions['ROS6 stable'] = readROSVersionFile($CFG['v6']['local_stable']);
+    $versions['ROS6 long-term'] = readROSVersionFile($CFG['v6']['local_longterm']);
+    $versions['ROS7 stable'] = readROSVersionFile($CFG['v7']['local_stable_afile']);
+    $versions['ROS7 long-term'] = readROSVersionFile($CFG['v7']['local_longterm_afile']);
+    return $versions;
 }
 
 try {
@@ -39,8 +67,10 @@ try {
             $model   = trim($_POST['model']   ?? '');
             $comment = trim($_POST['comment'] ?? '');
             $allowed = parseVersionsInput($_POST['allowed'] ?? '');
+            $ips     = parseVersionsInput($_POST['ips'] ?? ''); // Парсим IP аналогично версиям
             if ($id > 0) {
                 deviceUpdate($id, $model, $comment, $allowed);
+                deviceUpdateIps($id, $ips);
                 $flash = "Device #$id updated";
             }
             break;
@@ -89,6 +119,7 @@ try {
 $search  = trim($_GET['q'] ?? '');
 $devices = deviceList($search);
 $globals = globalVersionsList();
+$availableVersions = readAvailableFirmwareVersions($CFG);
 
 $editId     = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
 $editDevice = $editId ? deviceGet($editId) : null;
@@ -257,13 +288,19 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
   .bulk-bar input[type=checkbox]{width:14px;height:14px}
   .bulk-actions{display:flex;gap:8px}
   .cb-cell{width:30px;text-align:center}
+  
+  /* Available versions */
+  .avail-list{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+  .avail-row{display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:6px 10px;border-radius:6px;font-size:12px}
+  .avail-label{color:var(--muted);font-size:11px}
+  .avail-version{font-family:ui-monospace,monospace;font-weight:600;color:var(--accent)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>🛰 MikroTik <span>Update Proxy</span></h1>
-    <div class="time"><?= date('Y-m-d H:i:s') ?> UTC</div>
+    <div class="time"><?= date('Y-m-d H:i:s') ?></div>
   </header>
 
   <?php if ($flash): ?>
@@ -444,6 +481,21 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
         <input type="text" name="version" placeholder="7.24.5" required>
         <button class="btn" type="submit">Add</button>
       </form>
+      
+      <?php if (!empty($availableVersions)): ?>
+      <h2 style="margin-top:24px">Available firmware versions</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
+        Current versions on the proxy server.
+      </p>
+      <div class="avail-list">
+        <?php foreach ($availableVersions as $label => $version): ?>
+          <div class="avail-row">
+            <span class="avail-label"><?= htmlspecialchars($label) ?></span>
+            <span class="avail-version"><?= htmlspecialchars($version) ?></span>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
     </div>
   </div>
 </div>
@@ -514,6 +566,13 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
         <label>Allowed versions (one per line or comma-separated)</label>
         <textarea name="allowed"><?= htmlspecialchars(implode("\n", $editDevice['allowed_arr'])) ?></textarea>
       </div>
+      <div>
+        <label>IP addresses (one per line)</label>
+  <textarea name="ips" style="font-family:ui-monospace,monospace" placeholder="192.168.1.1&#10;10.0.0.1"><?php
+$ipList = array_map(fn($row) => $row['ip_address'], $editDevice['ips']);
+echo htmlspecialchars(implode("\n", $ipList));
+?></textarea>
+      </div>
       <div class="row">
         <a href="?<?= $search!==''?'q='.urlencode($search):'' ?>" class="btn sec">Cancel</a>
         <button class="btn" type="submit">Save</button>
@@ -537,7 +596,6 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
 
   function refresh() {
     var boxes = selectedBoxes();
-    // синхронизируем скрытые input ids[]
     idsBox.innerHTML = '';
     boxes.forEach(function (cb) {
       var inp = document.createElement('input');
@@ -548,7 +606,6 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
     });
     countEl.textContent = boxes.length + ' selected';
     bar.classList.toggle('visible', boxes.length > 0);
-    // подсветка строк
     document.querySelectorAll('tr[data-id]').forEach(function (tr) {
       var cb = tr.querySelector('.dev-cb');
       tr.classList.toggle('selected', !!(cb && cb.checked));

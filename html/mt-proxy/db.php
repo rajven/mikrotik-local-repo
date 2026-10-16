@@ -259,17 +259,18 @@ function deviceList(string $search = ''): array
             $stmt = $pdo->prepare(
                 "SELECT * FROM devices
                  WHERE serial IN ($placeholders)
-                    OR serial LIKE :s OR model LIKE :s OR comment LIKE :s
+                    OR serial LIKE ? OR model LIKE ? OR comment LIKE ?
                  ORDER BY last_seen_at DESC, id DESC"
             );
-            $stmt->execute(array_merge(array_values($ipSerials), ['%' . $search . '%', '%' . $search . '%', '%' . $search . '%']));
+            $params = array_merge(array_values($ipSerials), ['%' . $search . '%', '%' . $search . '%', '%' . $search . '%']);
+            $stmt->execute($params);
         } else {
             $stmt = $pdo->prepare(
                 "SELECT * FROM devices
-                 WHERE serial LIKE :s OR model LIKE :s OR comment LIKE :s
+                 WHERE serial LIKE ? OR model LIKE ? OR comment LIKE ?
                  ORDER BY last_seen_at DESC, id DESC"
             );
-            $stmt->execute([':s' => '%' . $search . '%']);
+            $stmt->execute(['%' . $search . '%', '%' . $search . '%', '%' . $search . '%']);
         }
     } else {
         $stmt = $pdo->query("SELECT * FROM devices ORDER BY last_seen_at DESC, id DESC");
@@ -288,6 +289,7 @@ function deviceList(string $search = ''): array
 
     return $rows;
 }
+
 
 function deviceGet(int $id): ?array
 {
@@ -555,5 +557,46 @@ function deviceRecordVisit(string $serial, string $model, string $ip,
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         error_log('[force_update] recordVisit error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Обновить список IP-адресов устройства.
+ * Удаляет все старые IP и добавляет новые из списка.
+ * @param int   $deviceId ID устройства
+ * @param array $ips      Массив IP-адресов
+ */
+function deviceUpdateIps(int $deviceId, array $ips): void
+{
+    $pdo = db();
+    $row = $pdo->prepare("SELECT serial FROM devices WHERE id = ?")->execute([$deviceId]);
+    $row = $pdo->query("SELECT serial FROM devices WHERE id = $deviceId")->fetch();
+    if (!$row) return;
+    
+    $serial = $row['serial'];
+    $now = gmdate('Y-m-d H:i:s');
+    
+    $pdo->beginTransaction();
+    try {
+        // Удалить все старые IP
+        $pdo->prepare("DELETE FROM device_ips WHERE serial = ?")->execute([$serial]);
+        
+        // Добавить новые IP
+        if (!empty($ips)) {
+            $stmt = $pdo->prepare(
+                "INSERT INTO device_ips(serial, ip_address, first_seen, last_seen) VALUES(?, ?, ?, ?)"
+            );
+            foreach ($ips as $ip) {
+                $ip = trim($ip);
+                if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $stmt->execute([$serial, $ip, $now, $now]);
+                }
+            }
+        }
+        
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
     }
 }
