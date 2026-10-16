@@ -226,6 +226,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n    :local dst \$2\
     \n    :local urlCA \$3\
     \n    :local caName \$4\
+    \n    :global isRos7\
     \n\
     \n    # Determine if HTTPS is used\
     \n    :local isHttps false\
@@ -235,9 +236,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n        :set httpMode https\
     \n    }\
     \n\
-    \n    :if (\$isRos7 = true) do={\
-    \n        /tool fetch url=\$url mode=\$httpMode check-certificate=yes dst-path=\$dst\
-    \n    } else={\
+    \n    :if (\$isRos7 = false) do={\
     \n        :if (\$isHttps = true) do={\
     \n            # ROS6: check if CA certificate exists\
     \n            :local certExists false\
@@ -271,17 +270,17 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n                }\
     \n            }\
     \n        }\
+    \n      }\
     \n\
-    \n       :if (\$isHttps = true) do={\
+    \n  :if (\$isHttps = true) do={\
     \n            #disable crl\
     \n            /certificate settings set crl-download=no crl-use=no\
     \n            # Now fetch with certificate validation\
     \n            /tool fetch url=\$url mode=https check-certificate=yes dst-path=\$dst\
     \n            } else={\
-    \n            # Now fetch with certificate validation\
+    \n            # Now fetch by http\
     \n            /tool fetch url=\$url mode=http dst-path=\$dst\
     \n            }\
-    \n    }\
     \n}\
     \n\
     \n# ============================================================\

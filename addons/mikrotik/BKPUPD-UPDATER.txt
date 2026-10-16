@@ -35,11 +35,14 @@
 # For ROS6: auto-imports CA certificate from server if missing
 # ============================================================
 
+
 :local fetchUrl do={
     :local url $1
     :local dst $2
     :local urlCA $3
     :local caName $4
+
+    :global isRos7
 
     # Determine if HTTPS is used
     :local isHttps false
@@ -49,9 +52,7 @@
         :set httpMode https
     }
 
-    :if ($isRos7 = true) do={
-        /tool fetch url=$url mode=$httpMode check-certificate=yes dst-path=$dst
-    } else={
+    :if ($isRos7 = false) do={
         :if ($isHttps = true) do={
             # ROS6: check if CA certificate exists
             :local certExists false
@@ -85,17 +86,17 @@
                 }
             }
         }
+      }
 
-       :if ($isHttps = true) do={
+  :if ($isHttps = true) do={
             #disable crl
             /certificate settings set crl-download=no crl-use=no
             # Now fetch with certificate validation
             /tool fetch url=$url mode=https check-certificate=yes dst-path=$dst
             } else={
-            # Now fetch with certificate validation
+            # Now fetch by http
             /tool fetch url=$url mode=http dst-path=$dst
             }
-    }
 }
 
 # ============================================================
