@@ -24,10 +24,12 @@ add dont-require-permissions=no name=BKPUPD-UPDATER policy=ftp,reboot,read,write
     \n:local rosVersion [/system resource get version]\
     \n:local majorVersion [:pick \$rosVersion 0 1]\
     \n:global isRos7 (\$majorVersion = \"7\")\
+    \n:global isRos6 (\$majorVersion = \"6\")\
     \n\
     \n:if (\$isRos7 = true) do={\
     \n    :log info \"BKPUPD-UPDATER: ROS 7 detected\"\
-    \n} else={\
+    \n}\
+    \n:if (\$isRos6 = true) do={\
     \n    :log info \"BKPUPD-UPDATER: ROS 6 detected\"\
     \n}\
     \n\
@@ -41,7 +43,7 @@ add dont-require-permissions=no name=BKPUPD-UPDATER policy=ftp,reboot,read,write
     \n    :local dst \$2\
     \n    :local urlCA \$3\
     \n    :local caName \$4\
-    \n    :global isRos7\
+    \n    :global isRos6\
     \n\
     \n    # Determine if HTTPS is used\
     \n    :local isHttps false\
@@ -51,7 +53,7 @@ add dont-require-permissions=no name=BKPUPD-UPDATER policy=ftp,reboot,read,write
     \n        :set httpMode https\
     \n    }\
     \n\
-    \n    :if (\$isRos7 = false) do={\
+    \n    :if (\$isRos6 = true) do={\
     \n        :if (\$isHttps = true) do={\
     \n            # ROS6: check if CA certificate exists\
     \n            :local certExists false\

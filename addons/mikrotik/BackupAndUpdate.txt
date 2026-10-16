@@ -46,6 +46,7 @@
 :global rosVersion [/system resource get version]
 :global majorVersion [:pick $rosVersion 0 1]
 :global isRos7 ($majorVersion = "7")
+:global isRos6 ($majorVersion = "6")
 
 # Obtain the device model, serial number and firmware versions
 :global rawModel [/system resource get board-name]
@@ -226,7 +227,7 @@
     :local dst $2
     :local urlCA $3
     :local caName $4
-    :global isRos7
+    :global isRos6
 
     # Determine if HTTPS is used
     :local isHttps false
@@ -236,7 +237,7 @@
         :set httpMode https
     }
 
-    :if ($isRos7 = false) do={
+    :if ($isRos6 = true) do={
         :if ($isHttps = true) do={
             # ROS6: check if CA certificate exists
             :local certExists false

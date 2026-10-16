@@ -47,6 +47,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n:global rosVersion [/system resource get version]\
     \n:global majorVersion [:pick \$rosVersion 0 1]\
     \n:global isRos7 (\$majorVersion = \"7\")\
+    \n:global isRos6 (\$majorVersion = \"6\")\
     \n\
     \n# Obtain the device model, serial number and firmware versions\
     \n:global rawModel [/system resource get board-name]\
@@ -226,7 +227,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n    :local dst \$2\
     \n    :local urlCA \$3\
     \n    :local caName \$4\
-    \n    :global isRos7\
+    \n    :global isRos6\
     \n\
     \n    # Determine if HTTPS is used\
     \n    :local isHttps false\
@@ -236,7 +237,7 @@ add dont-require-permissions=no name=BackupAndUpdate policy=ftp,reboot,read,writ
     \n        :set httpMode https\
     \n    }\
     \n\
-    \n    :if (\$isRos7 = false) do={\
+    \n    :if (\$isRos6 = true) do={\
     \n        :if (\$isHttps = true) do={\
     \n            # ROS6: check if CA certificate exists\
     \n            :local certExists false\
