@@ -54,3 +54,8 @@ What's new (Thu Oct 15 10:54:14 MSK 2026):
 *) Apache: php-autodetect and 00-mirror.conf corrected; the -http variants now ship as ready .rsc files (install_updater-http.rsc, BackupAndUpdate-http.rsc, BKPUPD-UPDATER-http.rsc).
 *) BackupAndUpdate.md5 and addons/mikrotik/readme*.md removed - keep the checksum generated on the mirror, the device scripts are documented in the main README now.
 *) nginx site.conf updated to match the Apache routing.
+
+What's new (Fri Oct 16 11:42:31 MSK 2026):
+*) web: added show available ROS versions
+*) bugfix: fixed search ip-address
+

@@ -1,6 +1,6 @@
 # 📦 mikrotik-local-repo
 
-[🇬🇧nglish](README.md) · [🇷🇺усский](README.ru.md)
+[🇬🇧 English](README.md) · [🇷🇺 Русский](README.ru.md)
 
 > Standalone RouterOS package mirror + smart upgrade proxy + per-device upgrade policy.
 
@@ -471,5 +471,3 @@ curl -sI "http://localhost/routeros/NEWESTa7.stable?version=7.24.4" | grep -i x-
 ## 📄 License
 
 Distributed under the MIT License. Copyright (c) 2023 Roman Dmitriev.
-
-Clarify proxy routing and URL requirements
