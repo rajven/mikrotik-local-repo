@@ -211,15 +211,15 @@ function writeCacheIfChanged(string $cacheFile, string $key, string $value): boo
 // ============================================================
 // HTTP request to the upstream MikroTik server
 // ============================================================
-function fetchFromUpstream(string $file, string $version, string $userAgentPrefix, int $timeout): array
+function fetchFromUpstream( array $config, string $file, string $version, string $userAgentPrefix, int $timeout): array
 {
-    $url = $CFG['upstream_base'] . $file . '?version=' . urlencode($version);
+    $url = $config['upstream_base'] . $file . '?version=' . urlencode($version);
     $userAgent = $userAgentPrefix . $version;
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER    => true,
-        CURLOPT_CONNECTTIMEOUT    => $CFG['connect_timeout'],
+        CURLOPT_CONNECTTIMEOUT    => $config['connect_timeout'],
         CURLOPT_TIMEOUT           => $timeout,
         CURLOPT_USERAGENT         => $userAgent,
         CURLOPT_SSL_VERIFYPEER    => true,
@@ -370,7 +370,7 @@ foreach ($byMajor as $major => $versionList) {
             }
 
             // Request upstream
-            $result = fetchFromUpstream($file, $v, $userAgent, $timeout);
+            $result = fetchFromUpstream($CFG, $file, $v, $userAgent, $timeout);
 
             if ($result['success']) {
                 writeCacheIfChanged($cacheFile, $cacheKey, $result['body']);
