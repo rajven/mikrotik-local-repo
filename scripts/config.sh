@@ -5,7 +5,7 @@
 # Directory with file mirror
 TARGET_DIR="/var/www/html/routeros"
 # Website address for update policies
-SITE_URL="http://SITE_NAME"
+SITE_URL="http://localhost"
 # Token for cache warm-up script
 WARMUP_TOKEN="CHANGE_ME"
 
@@ -23,7 +23,7 @@ if [[ ! -f "${WGET}" ]]; then
     exit 100
 fi
 
-# Проверка прав на запись в каталог зеркала
+# Checking write permissions to the mirror directory
 if [[ ! -w "${TARGET_DIR}" ]]; then
     echo "WARNING: No write permissions to ${TARGET_DIR}! Bye..." >&2
     exit 101
@@ -33,12 +33,12 @@ WGET_OPTS="-q -nc"
 
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
-# Версии ROS
+# ROS versions
 versions6=("6" "6fix")
 versions7=("stable" "long-term")
 firmware_arch=("arm" "arm64" "mipsbe" "mmips" "ppc" "smips" "tile" "x86")
 
-# Дополнительные файлы для загрузки
+# Additional files to download
 additional_files=(
     "btest.exe"
     "dude-install-VERSION.exe"
@@ -51,7 +51,7 @@ additional_files=(
     "netinstall-VERSION.zip"
 )
 
-# Настройки Winbox
+# Winbox Settings
 WINBOX_DIR="${TARGET_DIR}/winbox"
 WINBOX_BASE_URL="https://download.mikrotik.com/routeros/winbox"
 

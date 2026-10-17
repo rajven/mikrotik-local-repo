@@ -10,7 +10,7 @@
 - [Requirements](#-requirements) · [Installation](#-installation) · [Configuration](# -configuration) · [Synchronization](#-synchronization)
 - [Version-request proxy](#-version-request-proxy) · [Update policy](#-update-policy) · [Web admin](#-web-admin)
 - [Device-side configuration](#-device-side-configuration) · [Logging](#-logging) · [Troubleshooting](#-troubleshooting)
-- [Security notes](#-security-notes) · [Known limitations](# -known-limitations)
+- [Security notes](#-security-notes)
 
 ---
 
@@ -95,7 +95,6 @@ mikrotik-local-repo/
 │   ├── functions.sh            # Logging, additional files, Winbox
 │   ├── ros6_functions.sh       # RouterOS 6 download logic
 │   ├── ros7_functions.sh       # RouterOS 7 download logic (before/after 7.12.1)
-│   └── ros-warmup.pl           # Pre-populate the proxy version cache
 ├── html/
 │   ├── mt-proxy/
 │   │   ├── index.php           # Web admin panel (devices, rules, global versions)
@@ -103,6 +102,7 @@ mikrotik-local-repo/
 │   │   ├── ros6-upgrade.php    # NEWEST6.* / NEWESTa6.* proxy
 │   │   ├── ros7-upgrade.php    # NEWEST7.* / NEWESTa7.* proxy
 │   │   ├── force_update.php    # ENABLED/DISABLED gate
+│   │   ├── ros_warmup.php      # warmup cache
 │   │   └── mt_proxy_config.php # Upstream, timeouts, fallback versions
 │   ├── routeros/               # Initial *.version.cache files for the mirror
 │   └── fullchain.pem           # CA certificate chain for HTTPS policy checks on devices
@@ -122,7 +122,6 @@ Debian / Ubuntu and the following packages:
 | Component                                               | Used by                                |
 | ------------------------------------------------------- | -------------------------------------- |
 | `bash`, `wget`, `curl`, `unzip`, `coreutils`            | Synchronization scripts                |
-| `perl` + `libwww-perl`, `liburi-perl`                   | `ros-warmup.pl`                        |
 | `php-cli`, `php-curl`, `php-sqlite3`                    | Proxy, upgrade policy, web admin panel |
 | `apache2` **or** `nginx` + `php-fpm`                    | Serving the mirror and admin panel     |
 | `mod_rewrite`, `mod_headers`, `mod_proxy_fcgi` (Apache) | Routing `/routeros/*` requests to FPM  |
@@ -136,8 +135,7 @@ All examples use the standard Debian layout: scripts in `/usr/local/bin`, the we
 **Apache**
 
 ```
-apt install git bash wget curl unzip php php-curl php-sqlite3 \
-            libwww-perl liburi-perl apache2 -y
+apt install git bash wget curl unzip php php-curl php-sqlite3 apache2 -y
 a2enmod rewrite headers proxy_fcgi setenvif
 a2enconf php8.3-fpm        # Specify your PHP version
 ```
@@ -145,8 +143,7 @@ a2enconf php8.3-fpm        # Specify your PHP version
 **Nginx**
 
 ```
-apt install git bash wget curl unzip php php-curl php-sqlite3 php-fpm \
-            libwww-perl liburi-perl nginx -y
+apt install git bash wget curl unzip php php-curl php-sqlite3 php-fpm nginx -y
 ```
 
 > In the PHP-FPM pool configuration, set `clear_env = no` if you intend to override parameters using environment variables.
@@ -157,13 +154,10 @@ apt install git bash wget curl unzip php php-curl php-sqlite3 php-fpm \
 git clone https://github.com/rajven/mikrotik-local-repo.git
 cd mikrotik-local-repo
 
-cp scripts/*.sh scripts/ros-warmup.pl /usr/local/bin/
+cp scripts/*.sh /usr/local/bin/
 chmod +x /usr/local/bin/sync_mikrotik_repo.sh \
-         /usr/local/bin/download_ros.sh \
-         /usr/local/bin/ros-warmup.pl
+         /usr/local/bin/download_ros.sh
 ```
-
-> ⚠️ `sync_mikrotik_repo.sh` has `SCRIPT_DIR="/usr/local/bin"` hardcoded for `source` operations and calls `/usr/local/bin/ros-warmup.pl` using an absolute path. If you move the scripts elsewhere, update both lines. `download_ros.sh` uses `dirname "$0"` and works from any directory, provided all the scripts are located together.
 
 ### 3. Install the web layer
 
@@ -249,10 +243,11 @@ The second request registers a device with serial `TEST` in the database. On a f
 
 ```
 TARGET_DIR="/var/www/html/routeros"   # Mirror root, served by the web server
-SITE_URL="http://localhost"           # Base URL used by ros-warmup.pl
+SITE_URL="http://localhost"           # Base URL used by ros-warmup.php
 WGET="/bin/wget"                      # Path to wget; otherwise searched in $PATH
 LOG_OFF=0                             # 1 — completely disable syslog logging
 URL_SCHEMA="http"                     # http|https for upgrade.mikrotik.com; invalid values default to http
+WARMUP_TOKEN="CHANGE_ME"              # Token for cache warm-up script
 
 versions6=("6" "6fix")                # ROS 6 channels: stable and LTS
 versions7=("stable" "long-term")      # ROS 7 channels
@@ -276,6 +271,7 @@ This file returns a configuration array:
 | `allowed_versions_hardcoded`       | Last-resort allowlist (`6.49.23`, `7.24.5`, `7.23.8`)                                 |
 | `fallbacks`                        | Per-endpoint fallback responses when neither upstream nor local markers are available |
 | `v6` / `v7`                        | Log prefix, cache file, default version, `User-Agent` prefix, local marker files      |
+| `WARMUP_TOKEN`                     | Token for cache warm-up script. Set from config.sh                                    |
 
 Edit `mt_proxy_config.php` when MikroTik releases new versions and you want to update the safe fallback values. The model rules file `mt_proxy_rules.php` is no longer shipped, but `db.php` still reads it once to migrate older installations into SQLite.
 
@@ -299,21 +295,6 @@ What happens during a synchronization run:
 5. The version cache is warmed by sending requests to the local proxy endpoints.
 
 The ROS 7 channel is deliberately downloaded twice: `download_ros7 7.10` handles releases before 7.12.1, while `download_ros7 7.12.1 a` handles the `NEWESTa7.*` API introduced in 7.12.1. These require different `User-Agent` values (`RouterOS <version>`).
-
-### Cache warm-up
-
-At the end of `sync_mikrotik_repo.sh`, `ros-warmup.pl` is called twice with different `WARMUP_CACHE_FILE` values (`ros6.version.cache` and `ros7.version.cache`) and `WARMUP_BASE` derived from `SITE_URL`. The script reads the cache over HTTP, selects the last `WARMUP_KEEP` versions requested for each endpoint (3 by default), and requests each one through the local proxy.
-
-Existing keys are served from the cache. The script fills in combinations of endpoint and version that have not yet been cached, which devices may request after a new release becomes available. It also logs routing diagnostics to syslog, making PHP routing problems easier to detect.
-
-Run it manually after changing `SITE_URL` or clearing the cache:
-
-```
-WARMUP_BASE=http://mirror.example.lan WARMUP_CACHE_FILE=ros7.version.cache \
-WARMUP_KEEP=5 WARMUP_VERBOSE=1 /usr/local/bin/ros-warmup.pl
-```
-
-Increase `WARMUP_KEEP` immediately after deploying a fresh mirror. Cached proxy responses are not refreshed automatically, so deleting the cache file (or an individual entry) remains the most reliable way to trigger a new check.
 
 ## 🛰 Version Request Proxy
 
@@ -427,7 +408,6 @@ Everything is sent to syslog (`daemon`) with a tag based on the script name. The
 
 ```
 journalctl -t sync_mikrotik_repo.sh -f   # Synchronization
-journalctl -t ros-warmup -f              # Cache warm-up
 tail -f /var/log/nginx/mirror-error.log  # Proxy misses, fallbacks, PHP errors
 ```
 
@@ -447,7 +427,7 @@ curl -sI "http://localhost/routeros/NEWESTa7.stable?version=7.24.4" | grep -i x-
 | A version is downloaded on every run      | Compare the local `LATEST.*` / `NEWEST*` marker with upstream. Markers are overwritten only after a completely successful download.                                                |
 | `wireless-*.npk` is missing               | These packages are downloaded only for ROS 7 versions 7.12.1 and later on non-x86 architectures.                                                                                   |
 | The device reports "no updates available" | Has the DNS cache been flushed? Is `/routeros` served from the **website root**? Is an `X-Cache` header present? If not, PHP routing is broken.                                    |
-| The device is offered the wrong version   | The cache contains the relevant key. Inspect or delete the entry in `routeros/ros6.version.cache` or `ros7.version.cache`, or run `ros-warmup.pl`.                                 |
+| The device is offered the wrong version   | The cache contains the relevant key. Inspect or delete the entry in `routeros/ros6.version.cache` or `ros7.version.cache`, or run `ros-warmup.php`.                                 |
 | Winbox does not download                  | Is `curl` installed? Is `https://mikrotik.com/download/winbox` reachable?                                                                                                          |
 | The web admin panel returns 404           | `FallbackResource` / `try_files` must point to `index.php`. SQLite must be writable by the web server user; WAL mode requires write access to the directory.                       |
 
@@ -457,8 +437,6 @@ curl -sI "http://localhost/routeros/NEWESTa7.stable?version=7.24.4" | grep -i x-
 - `BackupAndUpdate` / `BKPUPD-UPDATER` use a full set of policies (`reboot`, `write`, `policy`, `password`, `sensitive`, `romon`, etc.) and can reboot devices. Anyone able to modify `/routeros/BackupAndUpdate.rsc` could potentially gain control over every router running the updater. Restrict access to the server itself.
 - The web admin panel is protected only by Basic Auth and vhost access restrictions. Do not expose it to the public Internet; restrict access by source IP and use a strong password.
 - `mt_proxy_config.php` contains no secrets, but `mt_proxy.db` contains the device inventory, including serial numbers and IP addresses. Both vhost configurations block access to it, but backups should be stored outside the document root.
-- Prefer the HTTPS script variants. The `-http` variants transmit device metadata (serial number, model, and firmware versions) in plaintext.
-- The proxy verifies upstream TLS certificates. `ros-warmup.pl` disables hostname verification only because it connects to the local mirror.
 
 ## ⚠️ Known Limitations
 
