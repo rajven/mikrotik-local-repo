@@ -1,6 +1,6 @@
 <?php
 /**
- * mt_proxy_config.php — общая конфигурация прокси и фолбэки.
+ * mt_proxy_config.php - general proxy configuration and fallbacks.
  */
 $routeros_dir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/routeros';
 
@@ -10,9 +10,14 @@ return [
     'total_timeout'   => 3,
     'routeros_dir'    => $routeros_dir,
 
-    // ----- Hardcoded fallback разрешённых версий -----
-    // Используется force_update.php как ПОСЛЕДНИЙ рубеж:
-    // если global_versions в БД пусты И mt_proxy_rules.php отсутствует/пуст.
+    // ============================================================================= 
+    // Security: checking the secret token 
+    // ============================================================================= 
+    'WARMUP_TOKEN' => 'CHANGE_ME', // Replace with your secret token
+
+    // ----- Hardcoded fallback of allowed versions ----- 
+    // Use force_update.php as the LAST stand: 
+    // if global_versions in the database are empty AND mt_proxy_rules.php is missing/empty.
     'allowed_versions_hardcoded' => [
         '6.49.23',
         '7.24.5',

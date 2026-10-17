@@ -1,9 +1,15 @@
 <?php
 /**
- * db.php — инициализация SQLite и вспомогательные функции
+ * db.php - SQLite initialization and helper functions
  */
 
 define('DB_PATH', __DIR__ . '/mt_proxy.db');
+
+// =============================================================================
+// Threshold versions for file selection
+// =============================================================================
+const ROS7_AFILE_THRESHOLD = '7.12.1'; // >= this version → NEWESTa7.*
+const ROS6_AFILE_THRESHOLD = '6.49.19'; // >= this version → NEWESTa6.*
 
 function db(): PDO
 {
@@ -64,7 +70,7 @@ function db(): PDO
             );
         ");
 
-        // Миграции для существующих БД
+        // Migrations for existing databases
         $stmt = $pdo->query("PRAGMA table_info(devices)");
         $cols = array_column($stmt->fetchAll(), 'name');
 
@@ -176,7 +182,7 @@ function deviceUpdateFirmwares(string $serial, string $currentFirmware, string $
     $stmt->execute([$currentFirmware, $upgradeFirmware, $newVersion, $now, $serial]);
 }
 
-/* ---------- IP-адреса устройств ---------- */
+/* ---------- Device IP addresses ---------- */
 
 function deviceIpsUpsert(string $serial, string $ip): void
 {

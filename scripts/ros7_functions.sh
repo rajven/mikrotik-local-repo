@@ -105,7 +105,7 @@ download_specific_ros7_version() {
             break
         fi
 
-        #upgrade package
+	#upgrade package
         ros_filename="routeros-${file_arch}-${version}.npk"
         $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}/${ros_filename}"
         if ! check_error $? "Failed to download routeros for ${file_arch}"; then

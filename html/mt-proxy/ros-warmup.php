@@ -1,32 +1,33 @@
 <?php
 /**
- * ros-warmup.php — прогрев кэша прокси RouterOS через веб-сервер.
+ * ros-warmup.php — RouterOS proxy cache warmup via web server.
  *
- * Собирает все уникальные версии прошивок из БД устройств
- * (current_firmware, upgrade_firmware, last_new_version) и делает
- * запросы к upstream MikroTik для каждой комбинации (файл, версия),
- * чтобы заранее заполнить файловый кэш.
+ * Collects all unique firmware versions from the devices DB
+ * (current_firmware, upgrade_firmware, last_new_version) and makes
+ * requests to the upstream MikroTik server for each (file, version)
+ * combination in order to pre-populate the file cache.
  *
- * Логика выбора файлов по версии:
+ * File selection logic per version:
  *   - ROS 7 < 7.12.1   → NEWEST7.*
  *   - ROS 7 >= 7.12.1  → NEWESTa7.*
  *   - ROS 6 < 6.49.19  → NEWEST6.*
  *   - ROS 6 >= 6.49.19 → NEWESTa6.*
  *
- * Защита: требуется секретный токен в GET-параметре ?token=SECRET
+ * Protection: a secret token is required in the GET parameter ?token=SECRET
  *
- * Пример вызова:
+ * Example invocation:
  *   curl "http://localhost/routeros/ros-warmup.php?token=YOUR_SECRET_TOKEN"
  */
 
 declare(strict_types=1);
 
 // ============================================================
-// Защита: проверка секретного токена
+// Load DB and config
 // ============================================================
-$SECRET_TOKEN = 'SECRET_TOKEN'; // Замените на свой секретный токен
+require __DIR__ . '/db.php';
+$CFG = require __DIR__ . '/mt_proxy_config.php';
 
-if (!isset($_GET['token']) || $_GET['token'] !== $SECRET_TOKEN) {
+if (!isset($_GET['token']) || $_GET['token'] !== $CFG['WARMUP_TOKEN']) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
     echo "Access denied: invalid or missing token\n";
@@ -34,25 +35,13 @@ if (!isset($_GET['token']) || $_GET['token'] !== $SECRET_TOKEN) {
 }
 
 // ============================================================
-// HTTP-заголовки
+// HTTP headers
 // ============================================================
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-store');
 
 // ============================================================
-// Подключаем БД и конфиг
-// ============================================================
-require __DIR__ . '/db.php';
-$CFG = require __DIR__ . '/mt_proxy_config.php';
-
-// ============================================================
-// Пороговые версии для выбора файлов
-// ============================================================
-const ROS7_AFILE_THRESHOLD = '7.12.1';   // >= этой версии → NEWESTa7.*
-const ROS6_AFILE_THRESHOLD = '6.49.19';  // >= этой версии → NEWESTa6.*
-
-// ============================================================
-// Собираем уникальные версии из БД
+// Collect unique versions from the DB
 // ============================================================
 function collectVersionsFromDB(): array
 {
@@ -75,7 +64,7 @@ function collectVersionsFromDB(): array
 }
 
 // ============================================================
-// Определяем мажорную версию (6 или 7)
+// Determine the major version (6 or 7)
 // ============================================================
 function majorVersion(string $v): string
 {
@@ -84,8 +73,8 @@ function majorVersion(string $v): string
 }
 
 // ============================================================
-// Определяем список файлов, которые будет запрашивать
-// устройство с данной версией
+// Determine the list of files that a device with the given
+// version will request
 // ============================================================
 function filesForVersion(string $v): array
 {
@@ -123,7 +112,7 @@ function filesForVersion(string $v): array
 }
 
 // ============================================================
-// Работа с кэшем (идентично ros6/ros7-upgrade.php)
+// Cache operations (identical to ros6/ros7-upgrade.php)
 // ============================================================
 function readCache(string $cacheFile, string $key): ?string
 {
@@ -220,7 +209,7 @@ function writeCacheIfChanged(string $cacheFile, string $key, string $value): boo
 }
 
 // ============================================================
-// HTTP-запрос к upstream MikroTik
+// HTTP request to the upstream MikroTik server
 // ============================================================
 function fetchFromUpstream(string $file, string $version, string $userAgentPrefix, int $timeout): array
 {
@@ -262,13 +251,13 @@ function fetchFromUpstream(string $file, string $version, string $userAgentPrefi
 }
 
 // ============================================================
-// HTML-вывод
+// HTML output helpers
 // ============================================================
 function htmlHeader(): void
 {
     echo <<<HTML
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -320,7 +309,7 @@ function logHtml(string $type, string $message, string $details = ''): void
 }
 
 // ============================================================
-// Основная логика
+// Main logic
 // ============================================================
 htmlHeader();
 
@@ -332,7 +321,7 @@ if (empty($versions)) {
     exit;
 }
 
-// Группируем версии по мажорной ветке
+// Group versions by major branch
 $byMajor = [];
 foreach ($versions as $v) {
     $major = majorVersion($v);
@@ -350,13 +339,13 @@ logHtml('info', sprintf(
 ));
 
 // ============================================================
-// Прогреваем
+// Warm up
 // ============================================================
 $total   = 0;
 $ok      = 0;
 $skipped = 0;
 $failed  = 0;
-$timeout = 5; // секунд на запрос
+$timeout = 5; // seconds per request
 
 foreach ($byMajor as $major => $versionList) {
     $branch    = $CFG['v' . $major];
@@ -372,7 +361,7 @@ foreach ($byMajor as $major => $versionList) {
             $total++;
             $cacheKey = $file . '_' . $v;
 
-            // Проверяем, есть ли уже в кэше
+            // Check if already cached
             $cached = readCache($cacheFile, $cacheKey);
             if ($cached !== null) {
                 $skipped++;
@@ -380,9 +369,9 @@ foreach ($byMajor as $major => $versionList) {
                 continue;
             }
 
-            // Запрашиваем upstream
+            // Request upstream
             $result = fetchFromUpstream($file, $v, $userAgent, $timeout);
-            
+
             if ($result['success']) {
                 writeCacheIfChanged($cacheFile, $cacheKey, $result['body']);
                 $display = trim($result['body']);

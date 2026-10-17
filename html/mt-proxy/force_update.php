@@ -1,6 +1,6 @@
 <?php
 /**
- * force_update.php — проверка разрешения на обновление.
+ * force_update.php - check permission to update.
  */
 header('Content-Type: text/plain; charset=utf-8');
 
