@@ -122,6 +122,11 @@ $MIRROR_DATA_DIR/
 - [`addons/docker/nginx/mirror.conf`](addons/docker/nginx/mirror.conf) — фрагмент для nginx
 - [`addons/docker/apache/site.conf`](addons/docker/apache/site.conf) — фрагмент для Apache
 
+При использованиии апача в качестве прокси, включите:
+```
+a2enmod rewrite headers setenvif proxy_http
+```
+
 Оба проксируют `/mt-proxy/` и `/routeros/` на контейнер (включите маппинг
 `8080:80` в `compose.yaml`) и **обязаны сохранять `User-Agent`** (контейнер
 отдаёт `.rsc`/`.txt` только User-Agent'ам RouterOS). Два момента, если

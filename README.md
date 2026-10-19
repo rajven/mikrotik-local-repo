@@ -121,6 +121,11 @@ device endpoints over TLS, put a reverse proxy in front — working examples:
 - [`addons/docker/nginx/mirror.conf`](addons/docker/nginx/mirror.conf) — nginx fragment
 - [`addons/docker/apache/site.conf`](addons/docker/apache/site.conf) — Apache fragment
 
+for apache - enable:
+```
+a2enmod rewrite headers setenvif proxy_http
+```
+
 Both proxy `/mt-proxy/` and `/routeros/` to the container (enable the
 `8080:80` port mapping in `compose.yaml`) and **must preserve `User-Agent`**
 (the container gates `.rsc`/`.txt` downloads to RouterOS user agents). Two
