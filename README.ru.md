@@ -112,6 +112,7 @@ mikrotik-local-repo/
 │   ├── nginx/                  # site.conf + mt-fastcgi.conf + mikrotik_ua.conf (разрешённые User-Agent)
 │   ├── cron.d/                 # sync_ROS_repo — синхронизация по расписанию
 │   └── mikrotik/               # Скрипты для роутеров (.txt = исходник / .rsc = установщик)
+├── docker/                   # all-in-one контейнер (см. «Альтернатива: Docker»)
 ├── CHANGELOG
 └── LICENSE                     # MIT
 ```
@@ -237,6 +238,26 @@ curl  "http://localhost/routeros/force_update.php?new_version=7.24.5&serial=TEST
 ```
 
 Второй запрос регистрирует в базе устройство с серийным номером `TEST`. На свежей установке глобальный список версий пуст, поэтому решение принимает уровень 5 (встроенный allow-лист): `7.24.5` вернёт `ENABLED`, а версия вне списка — `DISABLED`. Чтобы забрать управление у встроенных значений, добавьте свои версии в разделе **Global versions** веб-админки.
+
+### Альтернатива: Docker
+
+В каталоге `docker/` лежит готовый all-in-one образ (nginx + PHP-FPM, цикл
+синхронизации внутри — настройка веб-сервера и cron не нужны):
+
+```
+git clone https://github.com/rajven/mikrotik-local-repo.git
+cd mikrotik-local-repo/docker
+cp .env.example .env      # заполнить SITE_URL, WARMUP_TOKEN, ADMIN_PASSWORD
+docker compose up -d --build
+docker compose logs -f    # первая синхронизация — через ~90 с
+```
+
+Всё состояние (зеркало, SQLite, конфиги) живёт в хост-каталоге
+`MIRROR_DATA_DIR` (из `.env`, по умолчанию `./data`), монтируемом в `/data`.
+При каждом старте контейнер подставляет `SITE_URL` в device-копии `.rsc`,
+резолвит `SERVER_IP` для `dns.rsc`, пересобирает все `.md5` и передаёт `TZ`
+в PHP-FPM. Настройка устройств (статический DNS, скрипты) — точно такая же,
+как в шагах выше. Подробности: [`docker/README.md`](docker/README.md).
 
 ## ⚙️ Конфигурация
 

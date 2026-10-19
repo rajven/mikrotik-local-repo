@@ -112,6 +112,7 @@ mikrotik-local-repo/
 │   ├── nginx/                  # site.conf + mt-fastcgi.conf + mikrotik_ua.conf (UA allow-map)
 │   ├── cron.d/                 # sync_ROS_repo — scheduled synchronization
 │   └── mikrotik/               # Router scripts (.txt = source / .rsc = installer)
+├── docker/                   # all-in-one container image (see "Alternative: Docker")
 ├── CHANGELOG
 └── LICENSE                     # MIT
 ```
@@ -237,6 +238,26 @@ curl  "http://localhost/routeros/force_update.php?new_version=7.24.5&serial=TEST
 ```
 
 The second request registers a device with serial `TEST` in the database. On a fresh installation, the global version list is empty, so priority level 5 (the hardcoded allowlist) determines the result: `7.24.5` returns `ENABLED`, while a version not on the list returns `DISABLED`. To override the hardcoded list, add your versions under **Global versions** in the web admin panel.
+
+### Alternative: Docker
+
+The `docker/` directory ships a ready all-in-one image (nginx + PHP-FPM,
+sync loop included — no web-server or cron setup):
+
+```
+git clone https://github.com/rajven/mikrotik-local-repo.git
+cd mikrotik-local-repo/docker
+cp .env.example .env      # fill in SITE_URL, WARMUP_TOKEN, ADMIN_PASSWORD
+docker compose up -d --build
+docker compose logs -f    # first sync starts after ~90 s
+```
+
+All state (mirror, SQLite, configs) lives in the host directory
+`MIRROR_DATA_DIR` (from `.env`, `./data` by default) bind-mounted at `/data`.
+On every start the container embeds `SITE_URL` into the device-facing `.rsc`
+copies, resolves `SERVER_IP` for `dns.rsc`, regenerates every `.md5` and
+propagates `TZ` to PHP-FPM. Device-side setup (static DNS, scripts) is
+identical to the steps above. Details: [`docker/README.md`](docker/README.md).
 
 ## ⚙️ Configuration
 
