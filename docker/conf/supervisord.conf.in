@@ -1,0 +1,61 @@
+; supervisord template — @PHP_FPM_BIN@ is replaced at build time
+; (rendered to /etc/supervisor/supervisord.conf by the Dockerfile).
+
+[supervisord]
+nodaemon = true
+logfile = /dev/null
+logfile_maxbytes = 0
+pidfile = /run/supervisord.pid
+childlogdir = /tmp
+
+[unix_http_server]
+file = /run/supervisor.sock
+chmod = 0700
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl = unix:///run/supervisor.sock
+
+[program:php-fpm]
+command = @PHP_FPM_BIN@ -F
+priority = 10
+autorestart = true
+startsecs = 3
+stdout_logfile = /dev/stdout
+stdout_logfile_maxbytes = 0
+stderr_logfile = /dev/stderr
+stderr_logfile_maxbytes = 0
+
+[program:nginx]
+command = /usr/sbin/nginx -g "daemon off;"
+priority = 20
+autorestart = true
+startsecs = 3
+stdout_logfile = /dev/stdout
+stdout_logfile_maxbytes = 0
+stderr_logfile = /dev/stderr
+stderr_logfile_maxbytes = 0
+
+; scripts log via logger -> /dev/log; forward syslog to stdout (docker logs)
+[program:syslog]
+command = /bin/busybox syslogd -n -l 8 -O /dev/stdout
+priority = 5
+autorestart = true
+stdout_logfile = /dev/stdout
+stdout_logfile_maxbytes = 0
+stderr_logfile = /dev/stderr
+stderr_logfile_maxbytes = 0
+
+; replaces addons/cron.d/sync_ROS_repo
+[program:sync]
+command = /opt/docker/bin/sync-loop.sh
+user = www-data
+priority = 40
+autorestart = true
+startsecs = 10
+stdout_logfile = /dev/stdout
+stdout_logfile_maxbytes = 0
+stderr_logfile = /dev/stderr
+stderr_logfile_maxbytes = 0

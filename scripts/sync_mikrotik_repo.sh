@@ -34,6 +34,6 @@ download_ros7 "7.12.1" "a" "ROS 7 after 7.12.1" "$force"
 download_winbox
 
 #warmup version cache
-$WGET -q "${SITE_URL}/routeros/ros-warmup.php?token=${WARMUP_TOKEN}" 2>/dev/null
+$WGET -q "${SITE_URL}/routeros/ros-warmup.php?token=${WARMUP_TOKEN}" -O /dev/null 2>/dev/null 1>&2
 
 exit 0

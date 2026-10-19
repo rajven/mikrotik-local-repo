@@ -1,0 +1,47 @@
+# mikrotik-local-repo — all-in-one
+#
+# Run from the docker/ directory of the cloned repo:
+#   cp .env.example .env   # then edit it
+#   docker compose up -d --build
+#
+# Build context is the repo root (..), the Dockerfile is docker/Dockerfile.
+
+name: mikrotik-local-repo
+
+services:
+  mirror:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: rajven/mikrotik-local-repo:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+#      - "8080:80"
+    environment:
+      TZ: ${TZ:-UTC}
+      SITE_URL: ${SITE_URL:?set SITE_URL in .env}
+      WARMUP_TOKEN: ${WARMUP_TOKEN:?set WARMUP_TOKEN in .env}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-3}
+      SYNC_START_DELAY: ${SYNC_START_DELAY:-90}
+    volumes:
+      # Host directory for all state (mirror, DB, config). Set MIRROR_DATA_DIR
+      # in .env; relative paths resolve against this compose file's dir.
+      # Bind mount (default below) => rsync/tar/rsnap-friendly on the host.
+      - ${MIRROR_DATA_DIR:-./data}:/data
+      # Named volume instead (drop the bind line above, then the bottom
+      # `volumes:` block matters again):
+      # - mirror-data:/data
+    # For the air-gapped LAN scenario host networking avoids any NAT hairpin
+    # surprises when devices point their static DNS at this host:
+    # network_mode: "host"   # and remove the ports: mapping
+
+volumes:
+  mirror-data:   # used only with the named-volume variant
+
+# First start with an empty bind dir: the entrypoint seeds /data itself and
+# chowns /data/{routeros,state,config} to www-data (uid 33 on Debian).
+# On the host these dirs will be owned by uid 33 — that is expected.
