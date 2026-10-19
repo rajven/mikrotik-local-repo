@@ -10,6 +10,18 @@ return [
     'total_timeout'   => 3,
     'routeros_dir'    => $routeros_dir,
 
+    // IPs/CIDRs of front reverse proxies whose X-Forwarded-For / X-Real-IP
+    // headers force_update.php may trust when recording the device address
+    // (the CONNECTION peer REMOTE_ADDR must be in this list; devices
+    // connecting directly always register by REMOTE_ADDR). Loopback covers a
+    // proxy on the same host; 172.16.0.0/12 covers the docker bridge.
+    // Add your proxy's LAN IP/CIDR if it runs on a separate host.
+    'trusted_proxies' => [
+        '127.0.0.1',
+        '::1',
+        '172.16.0.0/12',
+    ],
+
     // ============================================================================= 
     // Security: checking the secret token 
     // ============================================================================= 
