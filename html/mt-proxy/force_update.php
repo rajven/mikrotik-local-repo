@@ -17,41 +17,48 @@ function getParam(string $key, string $default = ''): string
 /**
  * Resolve the real device address.
  *
- * Priority (only when the CONNECTION arrives from a configured trusted proxy):
- *   1. X-Forwarded-For - first valid address (original client)
- *   2. X-Real-IP
- *   3. REMOTE_ADDR
- * Otherwise: REMOTE_ADDR as-is. Every candidate must pass FILTER_VALIDATE_IP;
- * garbage/absent headers are skipped, not trusted.
+ * When the CONNECTION arrives from a configured trusted proxy, walk the
+ * X-Forwarded-For chain right-to-left, peeling off trusted hops, and return
+ * the first untrusted valid address (the device). This is safe whether the
+ * front proxy appends ($proxy_add_x_forwarded_for) or overwrites the header
+ * — every proxy hop in the chain simply must be listed in trusted_proxies.
+ * Fallback: X-Real-IP. Direct connections use REMOTE_ADDR as before.
+ * Untrusted/absent results return '' so the caller skips recording.
  */
 function resolveClientIp(array $trustedProxies): string
 {
     $remote = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+
     if ($remote === '' || !ipInTrustedList($remote, $trustedProxies)) {
-        return $remote;
+        return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '';
     }
 
     $xff = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
     if ($xff !== '') {
-        foreach (explode(',', $xff) as $hop) {
-            $hop = trim($hop);
-            if (filter_var($hop, FILTER_VALIDATE_IP)) {
-                return $hop;
+        $chain = array_map('trim', explode(',', $xff));
+        for ($i = count($chain) - 1; $i >= 0; $i--) {
+            $hop = $chain[$i];
+            // tolerated form in proxied chains: "[2001:db8::1]:443"
+            if (preg_match('/^\[([^\]]+)\](:\d+)?$/', $hop, $m)) {
+                $hop = $m[1];
             }
-            // bracketed form with optional port: "[2001:db8::1]:443"
-            if (preg_match('/^\[([^\]]+)\](:\d+)?$/', $hop, $m)
-                && filter_var($m[1], FILTER_VALIDATE_IP)) {
-                return $m[1];
+            if (!filter_var($hop, FILTER_VALIDATE_IP)) {
+                continue;
             }
+            if (ipInTrustedList($hop, $trustedProxies)) {
+                continue;
+            }
+            return $hop;
         }
     }
 
+    // X-Real-IP
     $xri = trim((string)($_SERVER['HTTP_X_REAL_IP'] ?? ''));
     if (filter_var($xri, FILTER_VALIDATE_IP)) {
         return $xri;
     }
 
-    return $remote;
+    return '';
 }
 
 function ipInTrustedList(string $ip, array $list): bool
