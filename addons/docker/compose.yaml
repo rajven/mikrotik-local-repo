@@ -10,9 +10,6 @@ name: mikrotik-local-repo
 
 services:
   mirror:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
     image: rajven/mikrotik-local-repo:latest
     restart: unless-stopped
     ports:

@@ -62,7 +62,7 @@ DNS-записями `download.mikrotik.com` / `upgrade.mikrotik.com` → IP э�
 
 | Путь в контейнере | (= `<MIRROR_DATA_DIR>/…`) | Содержимое |
 |---|---|---|
-| `/data/routeros` | `routeros/` | само зеркало, `*.version.cache`, winbox, `.rsc`-скрипты и `BackupAndUpdate.md5` (пересобирается на каждом старте) |
+| `/data/routeros` | `routeros/` | само зеркало, `*.version.cache`, winbox, `.rsc`-скрипты (с подставленным `SITE_URL`) и `.md5` для каждого из них (пересобирается на каждом старте) |
 | `/data/state` | `state/` | `mt_proxy.db` (+WAL) — вся политика и инвентарь |
 | `/data/config` | `config/` | `config.sh`, `mt_proxy_config.php`, `fullchain.pem`, `.htpasswd` |
 
@@ -87,11 +87,18 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
 
 ## Конфигурация: приоритет env vs файлы
 
+- `SITE_URL` — адрес зеркала **для устройств** (их статический DNS указывает
+  на него). При каждом старте в `.rsc`-копиях зеркала:
+  `http(s)://SERVER_NAME` → **весь `SITE_URL` с его схемой** (т.е. устройство
+  всегда идёт ровно туда, куда настроено, даже в `install_updater.rsc` с
+  https-вариантом), одиночный `SERVER_NAME` → host[:port], а `SERVER_IP` в
+  `dns.rsc` → IPv4 из resolve (безуспешность — только warning, плейсхолдер
+  остаётся; `ping` в образе нет, используется `getent`). Внутренний прогрев
+  кэша контейнер всегда делает в себя: `http://localhost`.
 - При **первом** старте entrypoint генерирует `/data/config/config.sh` и
-  `mt_proxy_config.php` из переменных (`SITE_URL`, `WARMUP_TOKEN`) и
-  подменяет `TARGET_DIR` на `/data/routeros`. Дальше env игнорируется —
-  правятся файлы в томе (это штатные файлы проекта, со всеми массивами
-  версий/архитектур).
+  `mt_proxy_config.php` из `WARMUP_TOKEN` и подменяет `TARGET_DIR` на
+  `/data/routeros`. Дальше env игнорируется — правятся файлы в томе (это
+  штатные файлы проекта, со всеми массивами версий/архитектур).
 - Чтобы применить новый env к существующему тому:
   `docker compose exec mirror rm /data/config/config.sh` и `docker compose
   up -d` (или отредактировать вручную).
@@ -101,11 +108,16 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
 
 ## Отличия/дополнения к bare-metal установке
 
-- **Крошечный патч на этапе сборки**: в `db.php` путь к SQLite
-  читается из env (`MT_PROXY_DB_PATH`), чтобы БД и WAL попадали в том.
-  Больше код репозитория не меняется (см. `Dockerfile`).
-- `BackupAndUpdate.md5` генерируется автоматически на каждом старте
-  контейнера (в bare-metal это по-прежнему ручная команда).
+- **Два патча на этапе сборки** (см. `Dockerfile`): путь SQLite из env
+  (`MT_PROXY_DB_PATH`) и строка прогрева в `sync_mikrotik_repo.sh` →
+  `wget -q -O /dev/null "http://localhost/..."` — без неё wget молча
+  сохранял ответ в файл `ros-warmup.php?token=...` в текущий каталог
+  (т.е. в зеркало), и вместо self-call использовал `SITE_URL`.
+  Остальное — код репозитория как есть.
+- **`.rsc` для устройств приготавливаются при старте контейнера**: подстановка
+  `SITE_URL`/`SERVER_IP` (см. раздел «Конфигурация») и `.md5` рядом с
+  **каждым** `.rsc` в зеркале (`BackupAndUpdate.md5` проверяет updater на
+  устройствах, остальные — заодно).
 - cron заменён на цикл с интервалом `SYNC_INTERVAL_HOURS` (по умолчанию 3 ч,
   первый прогон через `SYNC_START_DELAY` секунд).
 - Логи скриптов (`logger`) перекладываются в stdout контейнера
@@ -119,21 +131,36 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
 docker compose exec -u www-data mirror /usr/local/bin/sync_mikrotik_repo.sh force
 # закачать конкретную старую версию
 docker compose exec -u www-data mirror /usr/local/bin/download_ros.sh 6.49.17
-# прогрев кэша вручную
-docker compose exec mirror sh -c '. /data/config/config.sh; wget -qO- "$SITE_URL/routeros/ros-warmup.php?token=${WARMUP_TOKEN}"'
+# прогрев кэша вручную (изнутри контейнера)
+docker compose exec mirror sh -c '. /usr/local/bin/config.sh; wget -qO- "http://localhost/routeros/ros-warmup.php?token=${WARMUP_TOKEN}"'
 # состояние
 docker compose exec mirror sh -c 'supervisorctl -s unix:///run/supervisor.sock status || true'
 ```
 
 ## Ограничения контейнерной версии
 
-- **Права на томе**: entrypoint отдаёт `/data/*` пользователю `www-data` только
+- **Пра на томе**: entrypoint отдаёт `/data/*` пользователю `www-data` только
   для корневых каталогов (рекурсивный chown десятков гигабайт на старте —
   зло). При восстановлении из бэкапа на bind-монтировании после переноса:
   `docker compose exec mirror chown -R www-data:www-data /data`.
 - **Спецсимволы**: `WARMUP_TOKEN` попадает в `sed`-подстановку — используйте
   буквы/цифры/`(  _ - )` без `|` и `&`.
+- **Нет TLS**: устройства ходят по HTTP (и `mode=http` на ROS 7) — как и в
+  базовом сценарии README. HTTPS — отдельный слой (reverse-proxy или
+  `certbot` в контейнер позже).
+- Порты: наружу торчит только 80; админка и device-эндпоинты не разделены по
+  хостам — защита как в README (Basic Auth + UA-гейт + token).
 - Обновление образа: `docker compose up -d --build` после
   `git pull`; конфиги в томе останутся вашими. Если репозиторий поменял
-  `.rsc`-скрипты — они перетирут копию в зеркале (`install -C`) и md5 будет
-  пересобрана.
+  `.rsc`-скрипты — они перетирут копию в зеркале (`install -C`), подстановка
+  хоста и все md5 будут пересобраны.
+- **Смена `SITE_URL` применяется на рестарте**: в образе `.rsc` лежат с
+  плейсхолдером, поэтому каждый старт переустанавливает копии в зеркало
+  (`install -C`) и подставляет текущий `SITE_URL`; md5 пересобираются
+  автоматически. Достаточно `docker compose up -d` после правки `.env`.
+  Обратная сторона: **ручные правки в `/data/routeros/*.rsc` не сохраняются**
+  — кастомизацию скриптов делайте в репозитории/источнике образа.
+  `dns.rsc`: `SERVER_IP` подставляется только если `SITE_URL` резолвится в
+  адрес (хост в статическом DNS MikroTik не работает, нужен именно IP).
+- Для very больших парков: `pm.max_children`, буферы — тюнинг на месте;
+  сам проект намеренно одномашинный.
