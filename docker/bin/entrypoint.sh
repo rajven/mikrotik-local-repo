@@ -29,29 +29,11 @@ if [ -e "/usr/share/zoneinfo/${TZ}" ]; then
     ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 fi
 
+# PHP >= 7.3 ignores TZ//etc/localtime for date.timezone; propagate explicitly
+# (the installed pool conf always carries this line).
 for fpm in /etc/php/*/fpm/pool.d/container.conf; do
-    [ -f "$fpm" ] || continue
-
-    if grep -qE '^[;[:space:]]*php_(admin_)?value\[date\.timezone\]' "$fpm"; then
-        sed -i -E "s|^[;[:space:]]*php_(admin_)?value\[date\.timezone\].*|php_admin_value[date.timezone] = ${tz_escaped}|" "$fpm"
-    else
-        awk -v tz="$TZ" '
-            !done && /^\[/ && !/^\[global\]/ {
-                print;
-                print "php_admin_value[date.timezone] = " tz;
-                done = 1;
-                next;
-            }
-            { print }
-            END { if (!done) exit 2 }
-        ' "$fpm" > "$fpm.tmp"
-        if [ $? -eq 0 ]; then
-            mv "$fpm.tmp" "$fpm" || { echo "ERROR: mv $fpm" >&2; rm -f "$fpm.tmp"; }
-        else
-            rm -f "$fpm.tmp"
-            echo "WARN: no pool section in $fpm" >&2
-        fi
-    fi
+    [ -e "$fpm" ] || continue
+    sed -i "s|^[;[:space:]]*php_admin_value\[date\.timezone\].*|php_admin_value[date.timezone] = ${TZ}|" "$fpm"
 done
 
 # ---------------------------------------------------------------- data dirs
