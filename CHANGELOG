@@ -1,3 +1,39 @@
+What's new (Mon Oct 26 16:40:00 UTC 2026):
+
+*) Downloads are now incremental without "-nc": every transfer first compares
+   the local size with the server's Content-Length (.zip archives are also
+   tested with "unzip -t"), so a complete file is not downloaded again while a
+   truncated or damaged one is repaired instead of staying in the mirror
+   forever. "force" re-checks a release and fetches only what is broken.
+*) Transfers go to <file>.part and are renamed only after the size/CRC check,
+   so an interrupted run cannot leave a half-written .npk/.zip under its real
+   name; no .part files are left behind.
+*) Version marker answers are validated against "<version> <timestamp>" before
+   being used (an HTML error page from a proxy can no longer create a garbage
+   directory or overwrite a working marker); a leftover marker .new file is
+   removed at the start of every check, so one failed check no longer blocks
+   the ROS 7 synchronization permanently.
+*) Winbox: curl is called with --fail, the body is checked for an HTML error
+   page and .zip files for archive integrity; previously a 404 page was stored
+   as winbox.zip and then kept forever by the "file already exists" check.
+*) New releases now reach the devices: promoting a version clears
+   ros6.version.cache / ros7.version.cache, cached answers are re-validated
+   against upstream once they are older than "cache_revalidate" (6 hours by
+   default) instead of being final forever, and writeCacheIfChanged refreshes
+   the timestamp also when the answer did not change.
+*) Degradation order fixed: an expired cache entry is served as X-Cache: STALE
+   before falling back to local markers and the configured fallbacks.
+*) ros-warmup.php re-validates aged entries instead of skipping anything that
+   is cached and reports changed answers as CHANGE (report: OK/CHANGE/SKIP/FAIL);
+   the Dockerfile build patch now rewrites the WARMUP_URL line.
+*) wget gets --timeout/--read-timeout/--tries, sync_mikrotik_repo.sh and
+   download_ros.sh share a lock file, the mirror directory is created before
+   the write permission test, and the real exit code is propagated (no more
+   unconditional "exit 0", config.sh errors no longer kill the caller).
+*) Proxy caches and transfer artifacts (*.cache, *.part, *.new, *.tmp under
+   /routeros) are denied in the nginx and Apache configurations.
+*) docs/README.ru.md, docs/README.md and docker/README.md updated accordingly.
+
 What's new (Fri Apr 12 12:31:53 MSK 2024):
 
 *) added scripts for downloading the specified release, for versions up to ROS 7.12.1 (download_ROS7_release.sh) and after 7.12.1 (download_ROS7a_release.sh);

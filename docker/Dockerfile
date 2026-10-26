@@ -50,12 +50,13 @@ RUN chmod +x /opt/docker/bin/entrypoint.sh /opt/docker/bin/sync-loop.sh \
     /var/www/html/mt-proxy/db.php \
  && grep -q 'MT_PROXY_DB_PATH' /var/www/html/mt-proxy/db.php
 
-# Downstream patch #2: the warm-up is a container self-request. Two fixes in
-# one: (a) wget -q without -O SAVES the answer as "ros-warmup.php?token=..."
-# into CWD (i.e. the mirror dir!), (b) SITE_URL is the device-facing address
-# and must not be used internally — always hit localhost.
-RUN sed -i 's|\$WGET -q "\${SITE_URL}|$WGET -q -O /dev/null "http://localhost|' /usr/local/bin/sync_mikrotik_repo.sh \
- && grep -Fq -- '$WGET -q -O /dev/null "http://localhost/routeros/ros-warmup.php?token=${WARMUP_TOKEN}"' /usr/local/bin/sync_mikrotik_repo.sh
+# Downstream patch #2: the warm-up is a container self-request. SITE_URL is the
+# device-facing address (a front reverse proxy may be in front of it, and it may
+# even be unreachable from inside the container), so the internal call always
+# hits localhost. The sync script passes -O /dev/null explicitly: without it
+# wget would save the HTML report as "ros-warmup.php?token=..." into the mirror.
+RUN sed -i 's|^WARMUP_URL="${SITE_URL}|WARMUP_URL="http://localhost|' /usr/local/bin/sync_mikrotik_repo.sh \
+ && grep -Fq -- 'WARMUP_URL="http://localhost/routeros/ros-warmup.php?token=${WARMUP_TOKEN}"' /usr/local/bin/sync_mikrotik_repo.sh
 
 # PHP-FPM: our pool only, longer exec timeout for the warm-up endpoint
 RUN set -eux; \

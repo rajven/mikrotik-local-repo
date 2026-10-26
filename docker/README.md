@@ -109,10 +109,11 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
 ## Отличия/дополнения к bare-metal установке
 
 - **Два патча на этапе сборки** (см. `Dockerfile`): путь SQLite из env
-  (`MT_PROXY_DB_PATH`) и строка прогрева в `sync_mikrotik_repo.sh` →
-  `wget -q -O /dev/null "http://localhost/..."` — без неё wget молча
-  сохранял ответ в файл `ros-warmup.php?token=...` в текущий каталог
-  (т.е. в зеркало), и вместо self-call использовал `SITE_URL`.
+  (`MT_PROXY_DB_PATH`) и строка `WARMUP_URL="${SITE_URL}/..."` →
+  `WARMUP_URL="http://localhost/..."`, то есть self-call вместо `SITE_URL`
+  (это адрес для устройств, поверх него может стоять реверс-прокси). Сам
+  вызов прогрева уже передаёт wget `-O /dev/null`: без него wget сохранял
+  HTML-отчёт в файл `ros-warmup.php?token=...` внутри зеркала.
   Остальное — код репозитория как есть.
 - **`.rsc` для устройств приготавливаются при старте контейнера**: подстановка
   `SITE_URL`/`SERVER_IP` (см. раздел «Конфигурация») и `.md5` рядом с
@@ -122,6 +123,10 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
   первый прогон через `SYNC_START_DELAY` секунд).
 - Логи скриптов (`logger`) перекладываются в stdout контейнера
   (`busybox syslogd -O /dev/stdout`), PHP — тоже в stderr/stdout.
+- Синхронизация защищена общим локом (`SYNC_LOCK_FILE`): накладывающиеся
+  прогоны cron'а, контейнерного цикла и ручного `download_ros.sh` не
+  дерутся за маркеры и распаковку. Повторный прогон, пока идёт первый,
+  завершается с сообщением `Another synchronisation is already running`.
 - Веб-сервер один (nginx+FPM), автоопределение FPM/mod_php не нужно.
 
 ## Полезные команды

@@ -1,1 +1,6 @@
-1 */3 * * * root /usr/local/bin/sync_mikrotik_repo.sh 2>/dev/null && chown www-data:www-data -R /var/www/html
+# Keep the exit code of the sync visible (logrotate/syslog), but always fix
+# ownership: files may have been created between 02:00 and 05:00, the timezone
+# used by the Debian rsyslog daemon.
+SHELL=/bin/sh
+MAILTO=root
+1 */3 * * * root /usr/local/bin/sync_mikrotik_repo.sh >/dev/null 2>&1; rc=$?; chown www-data:www-data -R /var/www/html; exit $rc

@@ -1,14 +1,21 @@
 #!/bin/bash
 
 # Импорт конфигурации и функций
-SCRIPT_DIR="$(dirname "$0")"
-source "${SCRIPT_DIR}/config.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [[ ! -f "${SCRIPT_DIR}/functions.sh" || ! -f "${SCRIPT_DIR}/config.sh" ]]; then
+    SCRIPT_DIR="/usr/local/bin"
+fi
+
+source "${SCRIPT_DIR}/config.sh" || exit $?
 source "${SCRIPT_DIR}/functions.sh"
 source "${SCRIPT_DIR}/ros6_functions.sh"
 source "${SCRIPT_DIR}/ros7_functions.sh"
 
 # Создаем директорию если нет
 mkdir -p "$TARGET_DIR"
+
+# Не мешаем работающей синхронизации (и наоборот)
+acquire_sync_lock || exit 1
 
 # Начало лога
 log "Starting RouterOS download script"
@@ -62,7 +69,7 @@ download_specific_version() {
 
 if [ -n "${version}" ]; then
     # Загрузка конкретной версии
-    download_specific_version "$version"
+    download_specific_version "$version" || { log_error "Download of ${version} failed"; exit 1; }
 else
     # Если версия не передана - не делаем ничего
     log "No version specified. Exiting."

@@ -38,7 +38,7 @@ Devices are directed to the mirror using static DNS records, so RouterOS thinks 
 - 📦 `all_packages-*.zip` archives are **downloaded and extracted**, making individual `.npk` files available for manual upgrades.
 - 📥 Winbox for all published versions (`.zip`, `.dmg`, `.sha256`) in a separate `winbox/` directory tree.
 - 📄 Additional files: `CHANGELOG`, `packages.csv`, Netinstall, ISO images, The Dude installer, `.mib`, `btest.exe`, `flashfig.exe`.
-- ⏩ Unchanged versions are skipped — only new or updated releases are downloaded; `force` downloads everything again.
+- ⏩ Unchanged versions are skipped — only new or updated releases are downloaded. Every file is verified against the server's `Content-Length` (archives also by CRC), so `force` re-checks a release and re-downloads only what is missing or damaged. Only `CHANGELOG` and `packages.csv` are fetched again on every entry into a version.
 - 🎯 `download_ros.sh` downloads one specific version, including older releases.
 
 **Upgrade proxy**
@@ -270,6 +270,10 @@ WARMUP_TOKEN="CHANGE_ME"              # Secret token for the cache warm-up endpo
 WGET="/bin/wget"                      # Path to wget; otherwise searched in $PATH
 LOG_OFF=0                             # 1 — completely disable syslog logging
 URL_SCHEMA="https"                    # http|https for upgrade.mikrotik.com; invalid values default to http
+WGET_OPTS="-q --timeout=15 --read-timeout=60 --tries=2"  # no -nc: fetch_file() compares sizes itself
+SYNC_LOCK_FILE="/tmp/mikrotik-local-repo.sync.lock"      # shared lock of sync + download_ros.sh
+ROS6_CACHE_FILE="${TARGET_DIR}/ros6.version.cache"       # cleared when a release is promoted
+ROS7_CACHE_FILE="${TARGET_DIR}/ros7.version.cache"
 
 versions6=("6" "6fix")                # ROS 6 channels: stable and LTS
 versions7=("stable" "long-term")      # ROS 7 channels
@@ -289,6 +293,7 @@ This file returns a configuration array:
 | ---------------------------------- | ------------------------------------------------------------------------------------- |
 | `upstream_base`                    | Official repository URL prefix (`https://upgrade.mikrotik.com/routeros/`)             |
 | `connect_timeout`, `total_timeout` | Upstream request timeouts in seconds (2 / 3)                                          |
+| `cache_revalidate`                 | Age after which a cached `NEWEST*` answer is requested from upstream again (`21600` = 6 h) |
 | `routeros_dir`                     | Mirror directory, derived from `DOCUMENT_ROOT`                                        |
 | `WARMUP_TOKEN`                     | Secret token for `ros-warmup.php`; must match `WARMUP_TOKEN` in `scripts/config.sh`   |
 | `allowed_versions_hardcoded`       | Last-resort allowlist (`6.49.23`, `7.24.5`, `7.23.8`)                                 |
@@ -301,20 +306,20 @@ Edit `mt_proxy_config.php` when MikroTik releases new versions and you want to u
 
 ```
 /usr/local/bin/sync_mikrotik_repo.sh          # Only new/changed versions
-/usr/local/bin/sync_mikrotik_repo.sh force    # Ignore markers and download everything again
+/usr/local/bin/sync_mikrotik_repo.sh force    # Ignore markers and re-verify (repairs damaged files)
 /usr/local/bin/download_ros.sh 7.20.3         # One specific version in routeros/7.20.3/
 /usr/local/bin/download_ros.sh 6.49.23        # Also works with older releases
 ```
 
-The version argument can also be supplied as the second parameter (`download_ros.sh force 7.20.3`). This does not affect behavior: already downloaded files remain untouched because `wget` uses `-nc`.
+The version argument can also be supplied as the second parameter (`download_ros.sh force 7.20.3`). Files that are already complete are not transferred again: before each request the local size is compared with the server's `Content-Length` and `.zip` archives are tested with `unzip -t`, so a truncated or damaged file is repaired instead of staying in the mirror forever.
 
 What happens during a synchronization run:
 
 1. The script compares local markers (`LATEST.6` / `LATEST.6fix` and `NEWEST7.stable` / `NEWESTa7.*`) with the upstream data.
 2. For each changed version, it downloads `CHANGELOG`, `packages.csv` (ROS 7), `all_packages-<arch>-<version>.zip` and extracts the archives. It also downloads `routeros*.npk` and, for non-x86 architectures on ROS 7 versions 7.12.1 and later, `wireless-*.npk` images.
-3. Markers are overwritten only after successful downloads, so an interrupted run will be retried during the next synchronization.
+3. Transfers go to `<file>.part` and receive their real name only after the size (and for archives, the CRC) has been verified, so an interrupted run leaves no half-written package in the mirror. Marker answers are checked against `<version> <timestamp>` and rejected otherwise, a leftover `*.new` is deleted at the start of every check, and the local marker is overwritten only after the whole release is downloaded. Promoting a release also empties the proxy version caches, so devices re-ask upstream.
 4. All published Winbox builds are organized under `routeros/winbox/<version>/`.
-5. The script finishes by calling the local warm-up endpoint: `wget ${SITE_URL}/routeros/ros-warmup.php?token=${WARMUP_TOKEN}`. The endpoint collects all unique firmware versions from the devices database (`current_firmware`, `upgrade_firmware`, `last_new_version`), fetches the answers for the appropriate upstream markers of each version (`NEWEST6.*` for ROS 6 ≥ 6.49.19 uses `NEWESTa6.*`; ROS 7 ≥ 7.12.1 uses `NEWESTa7.*` instead of `NEWEST7.*`), and writes them into the cache files. Already-cached keys are skipped; the run ends with an HTML report (OK/SKIP/FAIL per request) and requires no Internet access from the devices.
+5. The script finishes by calling the local warm-up endpoint: `wget ${SITE_URL}/routeros/ros-warmup.php?token=${WARMUP_TOKEN}`. The endpoint collects all unique firmware versions from the devices database (`current_firmware`, `upgrade_firmware`, `last_new_version`), fetches the answers for the appropriate upstream markers of each version (`NEWEST6.*` for ROS 6 ≥ 6.49.19 uses `NEWESTa6.*`; ROS 7 ≥ 7.12.1 uses `NEWESTa7.*` instead of `NEWEST7.*`), and writes them into the cache files. Entries younger than `cache_revalidate` are skipped, older ones are re-validated and reported as `CHANGE` when upstream answers differently; the run ends with an HTML report (OK/CHANGE/SKIP/FAIL per request) and requires no Internet access from the devices.
 
 The ROS 7 channel is deliberately downloaded twice: `download_ros7 7.10` handles releases before 7.12.1, while `download_ros7 7.12.1 a` handles the `NEWESTa7.*` API introduced in 7.12.1. These require different `User-Agent` values (`RouterOS <version>`).
 
@@ -333,9 +338,9 @@ curl "http://localhost/routeros/ros-warmup.php?token=YOUR_SECRET_TOKEN"
 
 Each request is processed in the following order:
 
-1. **Cache** — The key `<endpoint>_<requested version>` in `routeros/ros6.version.cache` / `ros7.version.cache` is checked. A hit returns `X-Cache: HIT`.
+1. **Cache** — The key `<endpoint>_<requested version>` in `routeros/ros6.version.cache` / `ros7.version.cache` is checked together with its timestamp. An entry younger than `cache_revalidate` returns `X-Cache: HIT`; an older one is requested from upstream again, but is kept as the last resort when upstream fails.
 2. **Upstream** — A request is sent with `User-Agent: RouterOS <version>` and the original query string. The response is validated against `^\d+(\.\d+)+\s+\d+` before being cached. A successful upstream response returns `X-Cache: MISS`.
-3. **Fallback** — If upstream is unavailable or its response is invalid, the proxy returns a local marker (`LATEST.6`, `LATEST.6fix`, `NEWEST7.stable`, `NEWESTa7.long-term`). If the marker is also missing, it uses the value configured in `mt_proxy_config.php`. The response includes `X-Cache: STALE`, and the event is recorded in `error_log`.
+3. **Fallback** — If upstream is unavailable or its response is invalid, the proxy first returns the expired cache entry if there is one, otherwise a local marker (`LATEST.6`, `LATEST.6fix`, `NEWEST7.stable`, `NEWESTa7.long-term`), and if the marker is missing too, the value configured in `mt_proxy_config.php`. The response carries `X-Cache: STALE`, the event is recorded in `error_log`, and the cache file is never overwritten with unvalidated data.
 
 The `?version=` parameter is important: MikroTik returns the newest release relative to the version currently installed on the device. Therefore, the cache stores a separate entry for each update channel and version pair.
 
@@ -455,11 +460,11 @@ curl -sI "http://localhost/routeros/NEWESTa7.stable?version=7.24.4" | grep -i x-
 
 | Symptom                                   | What to check                                                                                                                                                                      |
 | ----------------------------------------- | -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Nothing downloads                         | Is `upgrade.mikrotik.com` reachable from the server? Is `wget` installed (missing wget exits with code `100`)? Does the process have write permissions to `TARGET_DIR` (exits `101`)? |
-| A version is downloaded on every run      | Compare the local `LATEST.*` / `NEWEST*` marker with upstream. Markers are overwritten only after a completely successful download.                                                |
+| Nothing downloads                         | Is `upgrade.mikrotik.com` reachable from the server? Is `wget` installed (exit `100`)? Can `TARGET_DIR` be created (exit `101`) and written (exit `102`)? Is another run holding the lock (`Another synchronisation is already running`)?                |
+| A version is downloaded on every run      | Upstream most likely re-issues the release under the same name (the marker timestamp changes) or the local files fail the size/CRC check and are being repaired. `CHANGELOG` and `packages.csv` are always fetched again.                             |
 | `wireless-*.npk` is missing               | These packages are downloaded only for ROS 7 versions 7.12.1 and later on non-x86 architectures.                                                                                   |
 | The device reports "no updates available" | Has the DNS cache been flushed? Is `/routeros` served from the **website root**? Is an `X-Cache` header present? If not, PHP routing is broken.                                    |
-| The device is offered the wrong version   | The cache contains the relevant key. Inspect or delete the entry in `routeros/ros6.version.cache` or `ros7.version.cache`, or re-run `ros-warmup.php?token=…`.                       |
+| The device is offered the wrong version   | Inspect the `<endpoint>_<version>` line in `routeros/ros6.version.cache` / `ros7.version.cache`: it is re-validated once older than `cache_revalidate` and cleared automatically when the sync promotes a release. Delete the line to refresh immediately.                                            |
 | The warm-up does nothing                  | `ros-warmup.php` returns 403 unless the token in the query matches `WARMUP_TOKEN` in `mt_proxy_config.php`; keep it in sync with `scripts/config.sh`. With an empty device database there is also nothing to warm up. |
 | `403` when downloading a `.rsc` script    | Expected for browsers and `curl`: `/routeros/*.rsc` is served only to RouterOS User-Agents (`Mikrotik/x.y…Fetch`, `RouterOS 7.x…`).                                                |
 | Winbox does not download                  | Is `curl` installed? Is `https://mikrotik.com/download/winbox` reachable?                                                                                                          |
@@ -476,8 +481,8 @@ curl -sI "http://localhost/routeros/NEWESTa7.stable?version=7.24.4" | grep -i x-
 
 ## ⚠️ Known Limitations
 
-- **Cache entries do not expire.** Each line in `ros6.version.cache` / `ros7.version.cache` stores `value|timestamp`, but readers compare only the value; the timestamp is informational. A cached `NEWEST*` response remains in place until its key is deleted or upstream returns a different value for the same endpoint/version pair. To pick up a reissued release immediately, delete the relevant entry or the entire cache file.
-- **Downloads do not overwrite existing files.** `WGET_OPTS="-q -nc"` (`no-clobber`) is used for all requests, so a package changed by MikroTik under the same filename will not be downloaded again. Note that `force` disables only the "version unchanged" check, not `-nc`. To truly download a file again, remove `${TARGET_DIR}/<version>/`.
+- **Cache revalidation is not immediate.** `ros6.version.cache` / `ros7.version.cache` store `value|timestamp`; an entry is served as `X-Cache: HIT` until it is older than `cache_revalidate` (6 hours by default) and is then requested from upstream again. A release promoted by the synchronization script clears the caches immediately, but a version published between two sync runs reaches devices only on the first request after the entry expires.
+- **Integrity check is limited to size, CRC and marker format.** Downloads stay incremental: a complete local file (matching `Content-Length`, intact archive) is not fetched again, so a package that MikroTik replaced with a *different build of exactly the same size* is detected only through the marker timestamp. To force a real re-download, delete `${TARGET_DIR}/<version>/`; the vendor publishes no checksums to verify against.
 - **Only the latest release in each channel is mirrored automatically.** Older versions remain on disk, but the synchronization cycle tracks only `LATEST.*` / `NEWEST*`. Use `download_ros.sh` to fetch a specific version.
 - **The architecture list is static.** New hardware architectures must be added manually to `firmware_arch`; otherwise, their packages will be silently skipped.
 - The scripts run as root and the cron job uses `chown www-data`. The setup assumes the mirror is managed by root; there is no unprivileged installation mode.

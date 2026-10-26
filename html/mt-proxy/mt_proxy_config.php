@@ -8,6 +8,12 @@ return [
     'upstream_base'   => 'https://upgrade.mikrotik.com/routeros/',
     'connect_timeout' => 2,
     'total_timeout'   => 3,
+
+    // A cached NEWEST* answer is re-validated against upstream after this
+    // many seconds (0 = never, i.e. a cache hit stays final forever).
+    // The synchronization script empties these files whenever it promotes a
+    // new release, so this TTL only covers releases published between syncs.
+    'cache_revalidate' => 21600,
     'routeros_dir'    => $routeros_dir,
 
     // IPs/CIDRs of front reverse proxies whose X-Forwarded-For / X-Real-IP

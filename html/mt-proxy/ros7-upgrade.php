@@ -8,6 +8,7 @@ define('UPSTREAM_BASE',   $CFG['upstream_base']);
 define('CONNECT_TIMEOUT', $CFG['connect_timeout']);
 define('TOTAL_TIMEOUT',   $CFG['total_timeout']);
 define('CACHE_FILE', $V7['cache_file']);
+define('CACHE_REVALIDATE', (int) ($CFG['cache_revalidate'] ?? 21600));
 define('LOG_PREFIX', $V7['log_prefix']);
 define('DEFAULT_VERSION', $V7['default_version']);
 define('USER_AGENT_PREFIX', $V7['user_agent']);
@@ -27,7 +28,11 @@ function readLocalFallback(string $path): ?string
     return $data === '' ? null : $data . "\n";
 }
 
-function readCache(string $key): ?string
+/**
+ * Returns ['value' => "...\n", 'ts' => <unix>] or null when there is no
+ * usable entry. The timestamp is what makes re-validation possible.
+ */
+function readCacheEntry(string $key): ?array
 {
     if (!is_file(CACHE_FILE) || !is_readable(CACHE_FILE)) return null;
     $lines = @file(CACHE_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -39,7 +44,8 @@ function readCache(string $key): ?string
         $valueParts = explode('|', trim($parts[1]), 2);
         if (count($valueParts) !== 2) continue;
         $value = $valueParts[0];
-        return $value !== '' ? $value . "\n" : null;
+        if ($value === '') return null;
+        return ['value' => $value . "\n", 'ts' => (int) $valueParts[1]];
     }
     return null;
 }
@@ -73,7 +79,9 @@ function writeCacheIfChanged(string $key, string $value): bool
                 $lines[] = $line;
             }
         }
-        if ($found && $currentValue === $value) return false;
+        // Refresh the timestamp even when the answer did not change, otherwise
+        // an unchanged release would be re-validated on every single request.
+        $changed = !$found || $currentValue !== $value;
         $newLine = $key . '=' . $value . '|' . time();
         if ($found) {
             foreach ($lines as $i => $line) {
@@ -86,7 +94,7 @@ function writeCacheIfChanged(string $key, string $value): bool
         ftruncate($fp, 0); rewind($fp);
         fwrite($fp, implode("\n", $lines) . "\n");
         fflush($fp);
-        return true;
+        return $changed;
     } finally {
         flock($fp, LOCK_UN); fclose($fp);
     }
@@ -150,8 +158,16 @@ if (!preg_match('/^\d+(\.\d+)*$/', $version)) {
 $cacheKey = $file . '_' . $version;
 
 /* ---------- 1. Кэш ---------- */
-$cached = readCache($cacheKey);
-if ($cached !== null) serve($cached, 'HIT');
+/* $stale keeps an expired answer as the last resort: better than a generic
+   fallback value when upstream is unreachable. */
+$stale = null;
+$entry = readCacheEntry($cacheKey);
+if ($entry !== null) {
+    if (CACHE_REVALIDATE <= 0 || (time() - $entry['ts']) < CACHE_REVALIDATE) {
+        serve($entry['value'], 'HIT');
+    }
+    $stale = $entry['value'];
+}
 
 /* ---------- 2. Upstream ---------- */
 $query = $_SERVER['QUERY_STRING'] ?? '';
@@ -182,8 +198,7 @@ $isValid = (
 
 if ($isValid) {
     $payload = rtrim($body, "\r\n\t ") . "\n";
-    $again = readCache($cacheKey);
-    if ($again === null) writeCacheIfChanged($cacheKey, $payload);
+    writeCacheIfChanged($cacheKey, $payload);
     serve($payload, 'MISS');
 }
 
@@ -192,5 +207,6 @@ error_log(sprintf(
     '%s upstream fail: file=%s version=%s url=%s http=%s curl_err=%s',
     LOG_PREFIX, $file, $version, $url, $httpCode, $curlErr ?: '-'
 ));
+if ($stale !== null) serve($stale, 'STALE');
 $payload = resolveFallback($file, $FALLBACKS);
 serve($payload, 'STALE');

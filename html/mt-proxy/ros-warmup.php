@@ -7,6 +7,10 @@
  * requests to the upstream MikroTik server for each (file, version)
  * combination in order to pre-populate the file cache.
  *
+ * Already-cached entries are re-validated against upstream once they get older
+ * than 'cache_revalidate' seconds in mt_proxy_config.php, so a release published
+ * after a cache warm-up is picked up automatically.
+ *
  * File selection logic per version:
  *   - ROS 7 < 7.12.1   → NEWEST7.*
  *   - ROS 7 >= 7.12.1  → NEWESTa7.*
@@ -114,7 +118,11 @@ function filesForVersion(string $v): array
 // ============================================================
 // Cache operations (identical to ros6/ros7-upgrade.php)
 // ============================================================
-function readCache(string $cacheFile, string $key): ?string
+/**
+ * Same format as ros6/ros7-upgrade.php: "key=value|timestamp".
+ * Returns ['value' => "...\n", 'ts' => <unix>] or null.
+ */
+function readCacheEntry(string $cacheFile, string $key): ?array
 {
     if (!is_file($cacheFile) || !is_readable($cacheFile)) {
         return null;
@@ -136,7 +144,10 @@ function readCache(string $cacheFile, string $key): ?string
             continue;
         }
         $value = $valueParts[0];
-        return $value !== '' ? $value . "\n" : null;
+        if ($value === '') {
+            return null;
+        }
+        return ['value' => $value . "\n", 'ts' => (int) $valueParts[1]];
     }
     return null;
 }
@@ -182,9 +193,9 @@ function writeCacheIfChanged(string $cacheFile, string $key, string $value): boo
                 $lines[] = $line;
             }
         }
-        if ($found && $currentValue === $value) {
-            return false;
-        }
+        // Refresh the timestamp even when the answer is unchanged, so that an
+        // entry is only re-validated once per cache_revalidate interval.
+        $changed = !$found || $currentValue !== $value;
         $newLine = $key . '=' . $value . '|' . time();
         if ($found) {
             foreach ($lines as $i => $line) {
@@ -201,7 +212,7 @@ function writeCacheIfChanged(string $cacheFile, string $key, string $value): boo
         rewind($fp);
         fwrite($fp, implode("\n", $lines) . "\n");
         fflush($fp);
-        return true;
+        return $changed;
     } finally {
         flock($fp, LOCK_UN);
         fclose($fp);
@@ -283,7 +294,7 @@ HTML;
     echo date('Y-m-d H:i:s') . "</span></p>\n";
 }
 
-function htmlFooter(int $total, int $ok, int $skipped, int $failed): void
+function htmlFooter(int $total, int $ok, int $skipped, int $failed, int $changed = 0): void
 {
     echo <<<HTML
 <div class="summary">
@@ -292,6 +303,7 @@ function htmlFooter(int $total, int $ok, int $skipped, int $failed): void
 <p><strong>Successful:</strong> <span style="color:#22c55e">$ok</span></p>
 <p><strong>Skipped (cached):</strong> <span style="color:#38bdf8">$skipped</span></p>
 <p><strong>Failed:</strong> <span style="color:#ef4444">$failed</span></p>
+<p><strong>Changed since last sync:</strong> <span style="color:#a78bfa">$changed</span></p>
 </div>
 <p>Finished at: <span class="mono">
 HTML;
@@ -317,7 +329,7 @@ $versions = collectVersionsFromDB();
 
 if (empty($versions)) {
     logHtml('info', 'No versions found in DB — nothing to warm up');
-    htmlFooter(0, 0, 0, 0);
+    htmlFooter(0, 0, 0, 0, 0);
     exit;
 }
 
@@ -345,7 +357,9 @@ $total   = 0;
 $ok      = 0;
 $skipped = 0;
 $failed  = 0;
+$changedCount = 0;
 $timeout = 5; // seconds per request
+$revalidate   = (int) ($CFG['cache_revalidate'] ?? 21600);
 
 foreach ($byMajor as $major => $versionList) {
     $branch    = $CFG['v' . $major];
@@ -361,11 +375,11 @@ foreach ($byMajor as $major => $versionList) {
             $total++;
             $cacheKey = $file . '_' . $v;
 
-            // Check if already cached
-            $cached = readCache($cacheFile, $cacheKey);
-            if ($cached !== null) {
+            // Fresh cache entry -> nothing to do
+            $entry = readCacheEntry($cacheFile, $cacheKey);
+            if ($entry !== null && $revalidate > 0 && (time() - $entry['ts']) < $revalidate) {
                 $skipped++;
-                logHtml('skip', "SKIP  $file v$v (already cached)");
+                logHtml('skip', "SKIP  $file v$v (fresh in cache)");
                 continue;
             }
 
@@ -375,7 +389,15 @@ foreach ($byMajor as $major => $versionList) {
             if ($result['success']) {
                 writeCacheIfChanged($cacheFile, $cacheKey, $result['body']);
                 $display = trim($result['body']);
-                logHtml('ok', "OK    $file v$v → $display", $result['url'] . ' | UA: ' . $result['userAgent']);
+                // A previously cached answer that differs from upstream is the
+                // line an administrator wants to see: the fleet will be offered
+                // another version after this run.
+                if ($entry !== null && trim($entry['value']) !== $display) {
+                    logHtml('ok', "CHANGE  $file v$v: " . trim($entry['value']) . " → $display", $result['url'] . ' | UA: ' . $result['userAgent']);
+                    $changedCount++;
+                } else {
+                    logHtml('ok', "OK    $file v$v → $display", $result['url'] . ' | UA: ' . $result['userAgent']);
+                }
                 $ok++;
             } else {
                 logHtml('fail', "FAIL  $file v$v (http={$result['httpCode']} err={$result['error']})", $result['url'] . ' | UA: ' . $result['userAgent']);
@@ -385,4 +407,4 @@ foreach ($byMajor as $major => $versionList) {
     }
 }
 
-htmlFooter($total, $ok, $skipped, $failed);
+htmlFooter($total, $ok, $skipped, $failed, $changedCount);
