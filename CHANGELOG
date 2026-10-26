@@ -1,3 +1,18 @@
+What's new (Mon Oct 26 21:10:00 UTC 2026) (follow-up):
+
+*) wget only: the synchronization scripts no longer use curl at all. The
+   Content-Length probe is "wget --spider --server-response" (its result is
+   cached, so a file costs at most one HEAD per run), and the Winbox page +
+   files are fetched with wget/fetch_file as well. curl is dropped from the
+   Docker image dependencies.
+*) An HTML error page (captive portal, transparent proxy) is detected by its
+   first bytes and rejected: it is never renamed to the final file name, and a
+   page stored earlier by the old curl code is overwritten on the next run
+   (this heals already corrupted winbox.zip mirrors).
+*) ros-warmup.php now also removes cache keys of firmwares that no registered
+   device reports any more (a device removed from the inventory no longer
+   leaves its entries behind), and reports the number in the summary.
+
 What's new (Mon Oct 26 16:40:00 UTC 2026):
 
 *) Downloads are now incremental without "-nc": every transfer first compares

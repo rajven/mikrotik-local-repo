@@ -60,7 +60,7 @@ Devices are directed to the mirror using static DNS records, so RouterOS thinks 
 ```
      Internet: upgrade.mikrotik.com / download.mikrotik.com
                 │
-                │  Only during synchronization: wget + curl + unzip
+Only during synchronization: wget + unzip
                 ▼
  ┌──────────────────────────────────────────────────────────────┐
  │  Mirror server  (/var/www/html)                              │
@@ -123,7 +123,7 @@ Debian / Ubuntu and the following packages:
 
 | Component                                               | Used by                                |
 | ------------------------------------------------------- | -------------------------------------- |
-| `bash`, `wget`, `curl`, `unzip`, `coreutils`            | Synchronization scripts                |
+| `bash`, `wget`, `unzip`, `coreutils`                  | Synchronization scripts                |
 | `php-curl`, `php-sqlite3`                               | Proxy, upgrade policy, web admin panel |
 | `apache2` **or** `nginx` + `php-fpm`                    | Serving the mirror and admin panel     |
 | `mod_rewrite`, `mod_headers`, `mod_proxy_fcgi` (Apache) | Routing `/routeros/*` requests to FPM  |
@@ -319,7 +319,7 @@ What happens during a synchronization run:
 2. For each changed version, it downloads `CHANGELOG`, `packages.csv` (ROS 7), `all_packages-<arch>-<version>.zip` and extracts the archives. It also downloads `routeros*.npk` and, for non-x86 architectures on ROS 7 versions 7.12.1 and later, `wireless-*.npk` images.
 3. Transfers go to `<file>.part` and receive their real name only after the size (and for archives, the CRC) has been verified, so an interrupted run leaves no half-written package in the mirror. Marker answers are checked against `<version> <timestamp>` and rejected otherwise, a leftover `*.new` is deleted at the start of every check, and the local marker is overwritten only after the whole release is downloaded. Promoting a release also empties the proxy version caches, so devices re-ask upstream.
 4. All published Winbox builds are organized under `routeros/winbox/<version>/`.
-5. The script finishes by calling the local warm-up endpoint: `wget ${SITE_URL}/routeros/ros-warmup.php?token=${WARMUP_TOKEN}`. The endpoint collects all unique firmware versions from the devices database (`current_firmware`, `upgrade_firmware`, `last_new_version`), fetches the answers for the appropriate upstream markers of each version (`NEWEST6.*` for ROS 6 ≥ 6.49.19 uses `NEWESTa6.*`; ROS 7 ≥ 7.12.1 uses `NEWESTa7.*` instead of `NEWEST7.*`), and writes them into the cache files. Entries younger than `cache_revalidate` are skipped, older ones are re-validated and reported as `CHANGE` when upstream answers differently; the run ends with an HTML report (OK/CHANGE/SKIP/FAIL per request) and requires no Internet access from the devices.
+5. The script finishes by calling the local warm-up endpoint: `wget ${SITE_URL}/routeros/ros-warmup.php?token=${WARMUP_TOKEN}`. The endpoint collects all unique firmware versions from the devices database (`current_firmware`, `upgrade_firmware`, `last_new_version`), fetches the answers for the appropriate upstream markers of each version (`NEWEST6.*` for ROS 6 ≥ 6.49.19 uses `NEWESTa6.*`; ROS 7 ≥ 7.12.1 uses `NEWESTa7.*` instead of `NEWEST7.*`), and writes them into the cache files. Entries younger than `cache_revalidate` are skipped, older ones are re-validated and reported as `CHANGE` when upstream answers differently; the run ends with an HTML report (OK/CHANGE/SKIP/FAIL per request) and requires no Internet access from the devices. Cache keys of firmwares that no registered device reports any more are removed on every warm-up run, so the cache files cannot grow without bound.
 
 The ROS 7 channel is deliberately downloaded twice: `download_ros7 7.10` handles releases before 7.12.1, while `download_ros7 7.12.1 a` handles the `NEWESTa7.*` API introduced in 7.12.1. These require different `User-Agent` values (`RouterOS <version>`).
 
@@ -467,7 +467,7 @@ curl -sI "http://localhost/routeros/NEWESTa7.stable?version=7.24.4" | grep -i x-
 | The device is offered the wrong version   | Inspect the `<endpoint>_<version>` line in `routeros/ros6.version.cache` / `ros7.version.cache`: it is re-validated once older than `cache_revalidate` and cleared automatically when the sync promotes a release. Delete the line to refresh immediately.                                            |
 | The warm-up does nothing                  | `ros-warmup.php` returns 403 unless the token in the query matches `WARMUP_TOKEN` in `mt_proxy_config.php`; keep it in sync with `scripts/config.sh`. With an empty device database there is also nothing to warm up. |
 | `403` when downloading a `.rsc` script    | Expected for browsers and `curl`: `/routeros/*.rsc` is served only to RouterOS User-Agents (`Mikrotik/x.y…Fetch`, `RouterOS 7.x…`).                                                |
-| Winbox does not download                  | Is `curl` installed? Is `https://mikrotik.com/download/winbox` reachable?                                                                                                          |
+| Winbox does not download                  | Is `wget` installed and able to reach `https://mikrotik.com/download/winbox` (the link list is scraped from that page)?                                                                                       |
 | The web admin panel returns 404           | `FallbackResource` / `try_files` must point to `index.php`. SQLite must be writable by the web server user; WAL mode requires write access to the directory.                       |
 
 ## 🔒 Security Notes

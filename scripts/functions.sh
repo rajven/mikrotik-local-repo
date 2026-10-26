@@ -43,37 +43,31 @@ valid_version_line() {
 }
 
 # Content-Length of a remote resource; prints nothing when it cannot be
-# determined. Results are cached per URL (one HEAD per file per run).
+# determined (non-200 answer, no header, server without HEAD support). wget only
+# - the whole mirror uses a single transfer tool. Results are cached per URL, so
+# a file costs at most one HEAD request per run.
 declare -A REMOTE_SIZE_CACHE=()
 remote_size() {
     local url=$1
     local user_agent=${2:-}
-    local cached headers code
+    local cached headers
 
     if [[ -n "${REMOTE_SIZE_CACHE[$url]+set}" ]]; then
         printf '%s' "${REMOTE_SIZE_CACHE[$url]}"
         return 0
     fi
 
-    if [ -n "${CURL:-}" ]; then
-        if [ -n "$user_agent" ]; then
-            headers=$($CURL -I -o - -w '\n%{http_code}' $CURL_OPTS -A "$user_agent" "$url" 2>/dev/null)
-        else
-            headers=$($CURL -I -o - -w '\n%{http_code}' $CURL_OPTS "$url" 2>/dev/null)
-        fi
-        code=$(printf '%s' "$headers" | tr -d '\r' | tail -n 1)
-        if [ "$code" = "200" ]; then
-            cached=$(printf '%s' "$headers" | tr -d '\r' \
-                    | LC_ALL=C awk 'tolower($1)=="content-length:"{v=$2} END{if(v!="")print v}')
-        fi
+    # --server-response prints the reply headers even with -q.
+    if [ -n "$user_agent" ]; then
+        headers=$($WGET --spider --server-response -q -U "$user_agent" "$url" 2>&1 | tr -d '\r')
     else
-        # Fallback: wget --spider prints the server response to stderr.
-        if [ -n "$user_agent" ]; then
-            headers=$($WGET --spider --server-response -q -U "$user_agent" "$url" 2>&1 | tr -d '\r')
-        else
-            headers=$($WGET --spider --server-response -q "$url" 2>&1 | tr -d '\r')
-        fi
-        cached=$(printf '%s' "$headers" | LC_ALL=C awk 'tolower($1)=="content-length:"{v=$2} END{if(v!="")print v}')
+        headers=$($WGET --spider --server-response -q "$url" 2>&1 | tr -d '\r')
+    fi
+
+    cached=""
+    if printf '%s' "$headers" | LC_ALL=C grep -Eq 'HTTP/1\.[0-9] 200([[:space:]]|$)'; then
+        cached=$(printf '%s' "$headers" \
+                | LC_ALL=C awk 'tolower($1)=="content-length:"{v=$2} END{if(v!="")print v}')
     fi
 
     REMOTE_SIZE_CACHE[$url]="${cached:-}"
@@ -81,8 +75,20 @@ remote_size() {
     return 0
 }
 
-# Does the local copy look finished? Archives are CRC-verified, everything else
-# is compared against the server's Content-Length. Returns:
+# True for an HTML error/gateway body saved under a file name: a transparent
+# proxy or a captive portal can answer 200 with a page. Checked at the very
+# beginning of the file (up to a BOM tolerated), so a real binary or a plain
+# text file can never be misdetected.
+is_error_page() {
+    local file=$1
+    [ -s "$file" ] || return 1
+    head -c 64 "$file" | LC_ALL=C tr -d '[:space:]' '\000' \
+        | LC_ALL=C grep -qiE '^.{0,4}<(!doctype[[:space:]]*html|html[[:space:]>])'
+}
+
+# Does the local copy look finished? Archives are CRC-verified, HTML error
+# bodies are rejected, everything else is compared against the server's
+# Content-Length. Returns:
 #   0 = complete, 1 = broken/absent, 2 = cannot be determined
 local_copy_state() {
     local dest=$1
@@ -91,6 +97,7 @@ local_copy_state() {
     local want have
 
     [ -s "$dest" ] || return 1
+    is_error_page "$dest" && return 1
 
     want=$(remote_size "$url" "$user_agent")
     have=$(stat -c%s "$dest" 2>/dev/null || echo "")
@@ -134,7 +141,7 @@ fetch_file() {
             return 0
             ;;
         1)
-            [ -e "$dest" ] && { log "Incomplete local copy, re-downloading: $(basename "$dest")"; rm -f "$dest"; }
+            [ -e "$dest" ] && { log "Damaged or incomplete local copy, re-downloading: $(basename "$dest")"; rm -f "$dest"; }
             ;;
         2)
             log "Remote size unknown, keeping local copy: $(basename "$dest")"
@@ -166,6 +173,12 @@ fetch_file() {
     if [ -n "$want" ] && [ -n "$have" ] && [ "$want" != "$have" ]; then
         rm -f "$tmp"
         log_error "Truncated download ($have/$want bytes): $url"
+        return 1
+    fi
+
+    if is_error_page "$tmp"; then
+        rm -f "$tmp"
+        log_error "Server returned an HTML page instead of the file: $url"
         return 1
     fi
 
@@ -281,35 +294,26 @@ get_ros7_user_agent() {
     fi
 }
 
-# Rejects HTML error bodies saved as binaries: without -f/--fail some servers
-# answer a 404 page with HTTP 200, and a "<!DOCTYPE" winbox.zip would then be
-# kept forever by the "already exists" check.
-is_error_page() {
-    local file=$1
-    [ -s "$file" ] || return 1
-    head -c 512 "$file" | LC_ALL=C tr -d '\0' | LC_ALL=C grep -qiE '<!doctype[[:space:]]+html|<html'
-}
-
 # Download Winbox and store files by version
 download_winbox() {
     log "Downloading Winbox files from mikrotik.com"
 
-    if [ -z "${CURL:-}" ]; then
-        log_error "curl not found, skipping Winbox download"
+    mkdir -p "$WINBOX_DIR"
+
+    # Fetch the HTML content of the page (wget again - no second tool needed;
+    # -O - writes the body to stdout, redirects are followed by default)
+    PAGE_CONTENT=$($WGET --timeout=15 --read-timeout=60 --tries=2 -q -O - "https://mikrotik.com/download/winbox" 2>/dev/null)
+    if [ -z "${PAGE_CONTENT}" ]; then
+        log_error "Cannot fetch the Winbox download page"
         return 1
     fi
 
-    mkdir -p "$WINBOX_DIR"
-
-    # Fetch the HTML content of the page
-    PAGE_CONTENT=$(curl -s -L --connect-timeout 10 --max-time 60 "https://mikrotik.com/download/winbox")
-
     # Find all links to .zip, .dmg, and .sha256 files
-    LINKS=$(echo "$PAGE_CONTENT" | grep -oP 'href="https?://[^"]*\.(zip|dmg|sha256)"' | sed 's/href="//;s/"//')
+    LINKS=$(printf '%s' "$PAGE_CONTENT" | grep -oP 'href="https?://[^"]*\.(zip|dmg|sha256)"' | sed 's/href="//;s/"//')
 
     # Alternative: find all links containing download.mikrotik.com and winbox
     if [ -z "$LINKS" ]; then
-        LINKS=$(echo "$PAGE_CONTENT" | grep -oP 'https?://download\.mikrotik\.com[^"]*winbox[^"]*\.(zip|dmg|sha256)"' | sed 's/"//')
+        LINKS=$(printf '%s' "$PAGE_CONTENT" | grep -oP 'https?://download\.mikrotik\.com[^"]*winbox[^"]*\.(zip|dmg|sha256)"' | sed 's/"//')
     fi
 
     if [ -z "$LINKS" ]; then
@@ -318,9 +322,9 @@ download_winbox() {
     fi
 
     # Remove duplicate links
-    LINKS=$(echo "$LINKS" | sort -u)
+    LINKS=$(printf '%s' "$LINKS" | sort -u)
 
-    log "Found $(echo "$LINKS" | wc -l) unique links"
+    log "Found $(printf '%s\n' "$LINKS" | wc -l) unique links"
 
     for LINK in $LINKS; do
         # Extract the version from the URL (part after /winbox/)
@@ -332,42 +336,16 @@ download_winbox() {
             VERSION_DIR="$WINBOX_DIR"
         fi
 
-        # Extract the filename from the URL
-        FILENAME=$(basename "$LINK")
-
         # Full path for saving the file
-        FILE_PATH="$VERSION_DIR/$FILENAME"
+        FILE_PATH="$VERSION_DIR/$(basename "$LINK")"
 
         # Create the version directory
         mkdir -p "$VERSION_DIR"
 
-        # Check if the file already exists AND is not a saved error page
-        if [ -f "$FILE_PATH" ] && ! is_error_page "$FILE_PATH"; then
-            log "File already exists: $FILE_PATH"
-            continue
-        fi
-        [ -f "$FILE_PATH" ] && { log "Garbage saved earlier, re-downloading: $FILE_PATH"; rm -f "$FILE_PATH"; }
-
-        log "Downloading: $LINK"
-
-        # Download the file with error handling. -f makes HTTP errors (40x/50x)
-        # a failure instead of storing the error page as the payload.
-        if curl -sfL --connect-timeout 10 --max-time 600 -o "${FILE_PATH}.part" "$LINK"; then
-            if [ ! -s "${FILE_PATH}.part" ] || is_error_page "${FILE_PATH}.part"; then
-                log_error "Server returned an error page/empty body: $LINK"
-                rm -f "${FILE_PATH}.part"
-            elif [[ "$FILENAME" == *.zip ]] && ! unzip -t -q "${FILE_PATH}.part" >/dev/null 2>&1; then
-                log_error "Corrupt archive: $LINK"
-                rm -f "${FILE_PATH}.part"
-            else
-                mv -f "${FILE_PATH}.part" "$FILE_PATH"
-                FILE_SIZE=$(du -h "$FILE_PATH" | cut -f1)
-                log_success "Downloaded: $FILE_PATH ($FILE_SIZE)"
-            fi
-        else
-            log_error "Failed to download: $LINK"
-            rm -f "${FILE_PATH}.part"
-        fi
+        # fetch_file() skips complete copies, repairs damaged ones (including a
+        # "<!DOCTYPE..." error page stored earlier by the old curl code) and
+        # never leaves a partial download under the real name.
+        fetch_file "$LINK" "$FILE_PATH" || log "Warning: failed to download $LINK"
 
         # Small delay between downloads
         sleep 0.5

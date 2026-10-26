@@ -220,6 +220,60 @@ function writeCacheIfChanged(string $cacheFile, string $key, string $value): boo
 }
 
 // ============================================================
+// Drop the cached answers of versions no device reports any more
+// ============================================================
+/**
+ * Keys look like "<endpoint>_<firmware>" - once the device with that firmware
+ * is gone from the inventory (removed, replaced, reflashed) nobody will ever
+ * ask for the entry again, so it is deleted instead of growing the cache files
+ * forever. The file is rewritten in place to keep the web server's ownership.
+ */
+function pruneStaleKeys(string $cacheFile, array $knownVersions): int
+{
+    if (!is_file($cacheFile) || !is_readable($cacheFile)) {
+        return 0;
+    }
+    $fp = @fopen($cacheFile, 'c+');
+    if (!$fp) {
+        return 0;
+    }
+    if (!flock($fp, LOCK_EX)) {
+        fclose($fp);
+        return 0;
+    }
+    try {
+        rewind($fp);
+        $content = stream_get_contents($fp);
+        $lines = array_filter(explode("\n", $content === false ? '' : (string) $content), fn($l) => trim($l) !== '');
+        $keep = [];
+        $removed = 0;
+        foreach ($lines as $line) {
+            $parts = explode('=', $line, 2);
+            $key = count($parts) === 2 ? trim($parts[0]) : '';
+            $pos = strpos($key, '_');
+            $version = $pos === false ? '' : substr($key, $pos + 1);
+            if ($version !== '' && !in_array($version, $knownVersions, true)) {
+                $removed++;
+                continue;
+            }
+            $keep[] = $line;
+        }
+        if ($removed > 0) {
+            ftruncate($fp, 0);
+            rewind($fp);
+            if ($keep !== []) {
+                fwrite($fp, implode("\n", $keep) . "\n");
+            }
+            fflush($fp);
+        }
+        return $removed;
+    } finally {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
+}
+
+// ============================================================
 // HTTP request to the upstream MikroTik server
 // ============================================================
 function fetchFromUpstream( array $config, string $file, string $version, string $userAgentPrefix, int $timeout): array
@@ -294,7 +348,7 @@ HTML;
     echo date('Y-m-d H:i:s') . "</span></p>\n";
 }
 
-function htmlFooter(int $total, int $ok, int $skipped, int $failed, int $changed = 0): void
+function htmlFooter(int $total, int $ok, int $skipped, int $failed, int $changed = 0, int $pruned = 0): void
 {
     echo <<<HTML
 <div class="summary">
@@ -304,6 +358,7 @@ function htmlFooter(int $total, int $ok, int $skipped, int $failed, int $changed
 <p><strong>Skipped (cached):</strong> <span style="color:#38bdf8">$skipped</span></p>
 <p><strong>Failed:</strong> <span style="color:#ef4444">$failed</span></p>
 <p><strong>Changed since last sync:</strong> <span style="color:#a78bfa">$changed</span></p>
+<p><strong>Orphan cache entries removed:</strong> <span style="color:#fbbf24">$pruned</span></p>
 </div>
 <p>Finished at: <span class="mono">
 HTML;
@@ -327,9 +382,19 @@ htmlHeader();
 
 $versions = collectVersionsFromDB();
 
+// Cache keys of firmwares that no registered device reports any more are
+// dropped on every run, so the cache files cannot grow without bound.
+$pruned = 0;
+foreach (['v6', 'v7'] as $branch) {
+    $pruned += pruneStaleKeys($CFG[$branch]['cache_file'], $versions);
+}
+if ($pruned > 0) {
+    logHtml('info', "PRUNE   removed $pruned orphan cache entries");
+}
+
 if (empty($versions)) {
     logHtml('info', 'No versions found in DB — nothing to warm up');
-    htmlFooter(0, 0, 0, 0, 0);
+    htmlFooter(0, 0, 0, 0, 0, $pruned);
     exit;
 }
 
@@ -407,4 +472,4 @@ foreach ($byMajor as $major => $versionList) {
     }
 }
 
-htmlFooter($total, $ok, $skipped, $failed, $changedCount);
+htmlFooter($total, $ok, $skipped, $failed, $changedCount, $pruned);

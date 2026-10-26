@@ -23,13 +23,6 @@ if [[ ! -f "${WGET}" ]]; then
     return 100
 fi
 
-# curl is used to ask the server for Content-Length (completeness checks) and to
-# fetch Winbox. Optional: without it the scripts fall back to wget --spider and,
-# if that fails too, to "assume the local copy is complete" (the old -nc behaviour).
-CURL="$(command -v curl || true)"
-# shellcheck disable=SC2034
-CURL_OPTS="-sS --connect-timeout 10 --max-time 30"
-
 # Create the mirror directory before checking write permissions, otherwise a
 # fresh installation aborts with a misleading "No write permissions".
 if [[ ! -d "${TARGET_DIR}" ]] && ! mkdir -p "${TARGET_DIR}" 2>/dev/null; then
