@@ -29,7 +29,7 @@ if [[ ! -w "${TARGET_DIR}" ]]; then
     exit 101
 fi
 
-WGET_OPTS="-q -nc"
+WGET_OPTS="-q"
 
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
