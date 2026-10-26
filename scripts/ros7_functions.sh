@@ -17,6 +17,7 @@ download_ros7() {
             continue
         fi
         log "Analyzing version ${firmware_version}"
+        [ -e "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new" ] && rm -f "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
 
         $WGET $WGET_OPTS -U "$user_agent" "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/NEWEST${version_prefix}7.${firmware_version}?version=${ros_version}" -O "${TARGET_DIR}/NEWEST${version_prefix}7.${firmware_version}.new"
         if ! check_error $? "Failed to get NEWEST${version_prefix}7.${firmware_version}"; then

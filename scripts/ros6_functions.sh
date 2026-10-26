@@ -14,7 +14,7 @@ download_ros6() {
     for firmware_version in "${versions6[@]}"; do
         log "Analyzing version ${firmware_version}"
         
-        rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
+        [ -e "${TARGET_DIR}/LATEST.${firmware_version}.new" ] && rm -f "${TARGET_DIR}/LATEST.${firmware_version}.new"
         
         $WGET $WGET_OPTS "${URL_SCHEMA}://upgrade.mikrotik.com/routeros/LATEST.${firmware_version}" -O "${TARGET_DIR}/LATEST.${firmware_version}.new"
         if ! check_error $? "Failed to get LATEST.${firmware_version}"; then
