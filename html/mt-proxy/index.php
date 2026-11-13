@@ -5,7 +5,10 @@
 require __DIR__ . '/db.php';
 $CFG = require __DIR__ . '/mt_proxy_config.php';
 
-$action = $_POST['action'] ?? $_GET['action'] ?? '';
+// Mutating actions are POST-only: accepted from GET as well, a single
+// <img src="...?action=delete_device&id=1"> on any page the admin happens to
+// open would fire the request, with Basic Auth credentials auto-attached.
+$action = $_POST['action'] ?? '';
 $flash  = '';
 
 /**

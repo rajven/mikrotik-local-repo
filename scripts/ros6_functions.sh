@@ -81,6 +81,11 @@ download_specific_ros6_version() {
 
     url="${URL_SCHEMA}://upgrade.mikrotik.com/routeros/${version}"
 
+    # CHANGELOG is one of the files MikroTik re-publishes under the same name
+    # (same handling as in ros7_functions.sh): always fetched again, otherwise
+    # fetch_file() would keep a size-identical stale copy forever.
+    rm -f "${base}/CHANGELOG"
+
     # Download changelog first
     if ! fetch_file "${url}/CHANGELOG" "${base}/CHANGELOG"; then
         log_error "Failed to download CHANGELOG for ${version}"

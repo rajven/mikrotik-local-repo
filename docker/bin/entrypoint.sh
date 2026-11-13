@@ -39,7 +39,11 @@ if [ -n "${WARMUP_TOKEN:-}" ] && [ "${WARMUP_TOKEN}" != "CHANGE_ME" ] \
     exit 1
 fi
 
-if [ -z "${WARMUP_TOKEN:-}" ] || [ "${WARMUP_TOKEN}" = "CHANGE_ME" ]; then
+if [ "${WARMUP_TOKEN:-}" = "change-me-to-a-random-secret" ]; then
+    echo "WARNING: WARMUP_TOKEN still has the .env.example placeholder value." >&2
+    echo "         It passes the charset check but is a predictable token:" >&2
+    echo "         change it to a random secret (e.g. \"pwgen 20 1\")." >&2
+elif [ -z "${WARMUP_TOKEN:-}" ] || [ "${WARMUP_TOKEN}" = "CHANGE_ME" ]; then
     echo "WARNING: WARMUP_TOKEN is not set — ros-warmup.php and sync use 'CHANGE_ME'." >&2
     echo "         Set WARMUP_TOKEN in the environment (or edit /data/config/mt_proxy_config.php)." >&2
 fi

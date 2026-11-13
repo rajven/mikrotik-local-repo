@@ -94,10 +94,17 @@ download_specific_ros7_version() {
         return 1
     fi
 
-    # packages.csv
+    # packages.csv is device-facing, but upstream publishes it only for
+    # recent releases (7.20 serves it; 7.16.2 and everything older answer
+    # 404), so a failed fetch here is expected and must NOT abort the
+    # download: the marker is still promoted and devices asking for the
+    # file get the same 404 they would get from MikroTik. A one-time
+    # transient failure leaves it missing until the next release or a
+    # forced run (documented repair path).
     rm -f "${base}/packages.csv"
-    fetch_file "${url}/packages.csv" "${base}/packages.csv" "$user_agent"
-    check_error $? "Failed to download packages.csv"
+    if ! fetch_file "${url}/packages.csv" "${base}/packages.csv" "$user_agent"; then
+        log_error "Failed to download packages.csv (optional for this version, continuing)"
+    fi
 
     for file_arch in "${firmware_arch[@]}"; do
         # Packages

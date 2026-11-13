@@ -38,8 +38,8 @@ return [
     // if global_versions in the database are empty AND mt_proxy_rules.php is missing/empty.
     'allowed_versions_hardcoded' => [
         '6.49.23',
-        '7.24.5',
-        '7.23.8',
+        '7.24.6',
+        '7.25.1',
     ],
 
     // ----- fallback -----
@@ -50,12 +50,12 @@ return [
         'NEWEST6.long-term'  => "6.49.23 1791389116\n",
         'NEWESTa6.long-term' => "6.49.23 1791389116\n",
         'NEWEST6.upgrade'    => "7.12.1 1700221125\n",
-        'NEWESTa6.upgrade'   => "7.23.8 1791452776\n",
+        'NEWESTa6.upgrade'   => "7.24.6 1793348669\n",
         // v7
         'NEWEST7.stable'     => "7.12.1 1700221125\n",
         'NEWEST7.long-term'  => "7.12.1 1700221125\n",
-        'NEWESTa7.stable'    => "7.24.5 1790691687\n",
-        'NEWESTa7.long-term' => "7.23.8 1791452776\n",
+        'NEWESTa7.stable'    => "7.25.1 1793623193\n",
+        'NEWESTa7.long-term' => "7.24.6 1793348669\n",
     ],
 
     // ----- ROS v6 -----
@@ -72,7 +72,7 @@ return [
     'v7' => [
         'log_prefix'           => '[mt-upgrade-proxy-v7]',
         'cache_file'           => $routeros_dir . '/ros7.version.cache',
-        'default_version'      => '7.23.8',
+        'default_version'      => '7.24.6',
         'user_agent'           => 'RouterOS ',
         'local_stable'         => $routeros_dir . '/NEWEST7.stable',
         // There is no NEWEST7.long-term marker on the mirror: the sync script
