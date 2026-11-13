@@ -1,6 +1,6 @@
 <?php
 /**
- * index.php — веб-интерфейс управления устройствами и глобальными версиями.
+ * index.php - device inventory and global version management web UI.
  */
 require __DIR__ . '/db.php';
 $CFG = require __DIR__ . '/mt_proxy_config.php';
@@ -9,7 +9,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $flash  = '';
 
 /**
- * Разобрать список версий из textarea (по одной на строку, либо через запятую).
+ * Parse a version list from a textarea (one per line, or comma-separated).
  */
 function parseVersionsInput(string $raw): array
 {
@@ -170,7 +170,8 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MikroTik Update Proxy — Devices</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.0/index.css">
+<!-- No external fonts: the panel must work in an air-gapped network.
+     system-ui / sans-serif fallbacks below are intentional. -->
 <style>
   :root{
     --bg:#0f172a; --panel:#1e293b; --panel2:#334155;
@@ -179,7 +180,7 @@ $qs = $search !== '' ? '&q=' . urlencode($search) : '';
     --border:#334155;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
   .wrap{max-width:1440px;margin:0 auto;padding:24px}
   header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
   h1{margin:0;font-size:22px;font-weight:600}
@@ -673,7 +674,7 @@ function closeChangelog() {
     document.getElementById('changelogModal').style.display = 'none';
 }
 
-// Закрытие по Escape
+// Close the changelog modal on Escape
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeChangelog();
 });

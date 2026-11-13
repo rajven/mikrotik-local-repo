@@ -75,6 +75,11 @@ return [
         'default_version'      => '7.23.8',
         'user_agent'           => 'RouterOS ',
         'local_stable'         => $routeros_dir . '/NEWEST7.stable',
+        // There is no NEWEST7.long-term marker on the mirror: the sync script
+        // skips the long-term channel before 7.12.1, so only NEWESTa7.long-term
+        // is ever created. During degradation (upstream unreachable, no cache)
+        // long-term devices therefore deliberately receive the stable marker's
+        // answer rather than nothing.
         'local_longterm'       => $routeros_dir . '/NEWEST7.stable',
         'local_stable_afile'   => $routeros_dir . '/NEWESTa7.stable',
         'local_longterm_afile' => $routeros_dir . '/NEWESTa7.long-term',

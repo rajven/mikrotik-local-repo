@@ -24,6 +24,25 @@ if [ "${1:-supervisord}" != "supervisord" ]; then
     exec "$@"
 fi
 
+# ---------------------------------------------------------------- token check
+# WARMUP_TOKEN is substituted into config.sh and mt_proxy_config.php with sed
+# (delimiter "|") on first start. A token containing sed metacharacters would
+# silently corrupt the generated configs, so refuse to start with a clear
+# message instead. Allowed: letters, digits, '_', '-' (as documented in
+# .env.example / README: "pwgen 20 1" output fits).
+if [ -n "${WARMUP_TOKEN:-}" ] && [ "${WARMUP_TOKEN}" != "CHANGE_ME" ] \
+   && ! printf '%s' "${WARMUP_TOKEN}" | grep -qE '^[A-Za-z0-9_-]+$'; then
+    echo "ERROR: WARMUP_TOKEN contains unsupported characters: '${WARMUP_TOKEN}'" >&2
+    echo "       Allowed: letters, digits, '_', '-'. The token is substituted" >&2
+    echo "       into the generated config files via sed; '|' and '&' would" >&2
+    echo "       corrupt them. Refusing to start." >&2
+    exit 1
+fi
+
+if [ -z "${WARMUP_TOKEN:-}" ] || [ "${WARMUP_TOKEN}" = "CHANGE_ME" ]; then
+    echo "WARNING: WARMUP_TOKEN is not set — ros-warmup.php and sync use 'CHANGE_ME'." >&2
+    echo "         Set WARMUP_TOKEN in the environment (or edit /data/config/mt_proxy_config.php)." >&2
+fi
 # ---------------------------------------------------------------- time zone
 if [ -e "/usr/share/zoneinfo/${TZ}" ]; then
     ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
@@ -63,11 +82,6 @@ if [ ! -f "${MT_CFG}" ]; then
         "${APP}/html/mt-proxy/mt_proxy_config.php" > "${MT_CFG}"
 fi
 ln -sfn "${MT_CFG}" /var/www/html/mt-proxy/mt_proxy_config.php
-
-if [ -z "${WARMUP_TOKEN:-}" ] || [ "${WARMUP_TOKEN:-}" = "CHANGE_ME" ]; then
-    echo "WARNING: WARMUP_TOKEN is not set — ros-warmup.php and sync use 'CHANGE_ME'." >&2
-    echo "         Set WARMUP_TOKEN in the environment (or edit ${MT_CFG})." >&2
-fi
 
 # ---------------------------------------------------------------- fullchain
 FULLCHAIN="${DATA}/config/fullchain.pem"

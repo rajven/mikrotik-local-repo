@@ -99,7 +99,7 @@ function db(): PDO
             $pdo->exec("ALTER TABLE devices ADD COLUMN last_new_version TEXT NOT NULL DEFAULT ''");
         }
 
-        // Одноразовая миграция из старого mt_proxy_rules.php
+        // One-time migration from the old mt_proxy_rules.php
         $stmt = $pdo->query("SELECT value FROM meta WHERE key = 'legacy_migrated'");
         if (!$stmt->fetch()) {
             migrateFromLegacy($pdo);
@@ -425,7 +425,7 @@ function globalVersionDelete(string $v): bool
     return $pdo->prepare("DELETE FROM global_versions WHERE version = ?")->execute([trim($v)]);
 }
 
-/* ---------- Fallback-цепочки ---------- */
+/* ---------- Fallback chains ---------- */
 
 function legacyFileGlobalVersions(): array
 {

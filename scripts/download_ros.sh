@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Импорт конфигурации и функций
+# Import configuration and functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 if [[ ! -f "${SCRIPT_DIR}/functions.sh" || ! -f "${SCRIPT_DIR}/config.sh" ]]; then
     SCRIPT_DIR="/usr/local/bin"
@@ -11,13 +11,13 @@ source "${SCRIPT_DIR}/functions.sh"
 source "${SCRIPT_DIR}/ros6_functions.sh"
 source "${SCRIPT_DIR}/ros7_functions.sh"
 
-# Создаем директорию если нет
+# Create the directory if it does not exist
 mkdir -p "$TARGET_DIR"
 
-# Не мешаем работающей синхронизации (и наоборот)
+# Do not interfere with a running synchronisation (and vice versa)
 acquire_sync_lock || exit 1
 
-# Начало лога
+# Log header
 log "Starting RouterOS download script"
 #log "Target directory: $TARGET_DIR"
 
@@ -27,7 +27,7 @@ force=$1
 version=$2
 
 if [ -n "${force}" ] && [ "${force}" != "force" ]; then
-    # Если первый параметр не "force", то это может быть версия
+    # If the first argument is not "force", it may be a version
     if [ -z "${version}" ]; then
         version="${force}"
         force=""
@@ -38,7 +38,7 @@ if [ -n "${force}" ]; then
     log "Force flag for download packages found!"
 fi
 
-# Функция для загрузки конкретной версии
+# Download one specific version
 download_specific_version() {
     local version=$1
     local version_type=""
@@ -68,10 +68,10 @@ download_specific_version() {
 }
 
 if [ -n "${version}" ]; then
-    # Загрузка конкретной версии
+    # Download a specific version
     download_specific_version "$version" || { log_error "Download of ${version} failed"; exit 1; }
 else
-    # Если версия не передана - не делаем ничего
+    # No version given - nothing to do
     log "No version specified. Exiting."
     exit 0
 fi

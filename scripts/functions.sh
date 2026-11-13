@@ -82,7 +82,7 @@ remote_size() {
 is_error_page() {
     local file=$1
     [ -s "$file" ] || return 1
-    head -c 64 "$file" | LC_ALL=C tr -d '[:space:]' '\000' \
+    head -c 64 "$file" | LC_ALL=C tr -d '[:space:]\000' \
         | LC_ALL=C grep -qiE '^.{0,4}<(!doctype[[:space:]]*html|html[[:space:]>])'
 }
 

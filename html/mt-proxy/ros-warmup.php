@@ -29,9 +29,14 @@ declare(strict_types=1);
 // Load DB and config
 // ============================================================
 require __DIR__ . '/db.php';
+require __DIR__ . '/mt_cache.php';
 $CFG = require __DIR__ . '/mt_proxy_config.php';
 
-if (!isset($_GET['token']) || $_GET['token'] !== $CFG['WARMUP_TOKEN']) {
+// hash_equals: constant-time comparison, so response timing does not leak
+// how much of the token a requester guessed.
+if (!isset($_GET['token'])
+    || !is_string($_GET['token'])
+    || !hash_equals((string) ($CFG['WARMUP_TOKEN'] ?? ''), $_GET['token'])) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
     echo "Access denied: invalid or missing token\n";
@@ -113,110 +118,6 @@ function filesForVersion(string $v): array
     }
 
     return [];
-}
-
-// ============================================================
-// Cache operations (identical to ros6/ros7-upgrade.php)
-// ============================================================
-/**
- * Same format as ros6/ros7-upgrade.php: "key=value|timestamp".
- * Returns ['value' => "...\n", 'ts' => <unix>] or null.
- */
-function readCacheEntry(string $cacheFile, string $key): ?array
-{
-    if (!is_file($cacheFile) || !is_readable($cacheFile)) {
-        return null;
-    }
-    $lines = @file($cacheFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if ($lines === false) {
-        return null;
-    }
-    foreach ($lines as $line) {
-        $parts = explode('=', $line, 2);
-        if (count($parts) !== 2) {
-            continue;
-        }
-        if (trim($parts[0]) !== $key) {
-            continue;
-        }
-        $valueParts = explode('|', trim($parts[1]), 2);
-        if (count($valueParts) !== 2) {
-            continue;
-        }
-        $value = $valueParts[0];
-        if ($value === '') {
-            return null;
-        }
-        return ['value' => $value . "\n", 'ts' => (int) $valueParts[1]];
-    }
-    return null;
-}
-
-function writeCacheIfChanged(string $cacheFile, string $key, string $value): bool
-{
-    $dir = dirname($cacheFile);
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    $value = trim($value, "\r\n\t");
-    if ($value === '') {
-        return false;
-    }
-    $fp = @fopen($cacheFile, 'c+');
-    if (!$fp) {
-        return false;
-    }
-    if (!flock($fp, LOCK_EX)) {
-        fclose($fp);
-        return false;
-    }
-    try {
-        rewind($fp);
-        $content = stream_get_contents($fp);
-        $existing = [];
-        if ($content !== false && $content !== '') {
-            $existing = array_filter(explode("\n", $content), fn($line) => $line !== '');
-        }
-        $lines        = [];
-        $found        = false;
-        $currentValue = null;
-        foreach ($existing as $line) {
-            $parts = explode('=', $line, 2);
-            if (count($parts) === 2 && trim($parts[0]) === $key) {
-                $found = true;
-                $vp = explode('|', trim($parts[1]), 2);
-                if (count($vp) === 2) {
-                    $currentValue = $vp[0];
-                }
-                $lines[] = $line;
-            } else {
-                $lines[] = $line;
-            }
-        }
-        // Refresh the timestamp even when the answer is unchanged, so that an
-        // entry is only re-validated once per cache_revalidate interval.
-        $changed = !$found || $currentValue !== $value;
-        $newLine = $key . '=' . $value . '|' . time();
-        if ($found) {
-            foreach ($lines as $i => $line) {
-                $parts = explode('=', $line, 2);
-                if (count($parts) === 2 && trim($parts[0]) === $key) {
-                    $lines[$i] = $newLine;
-                    break;
-                }
-            }
-        } else {
-            $lines[] = $newLine;
-        }
-        ftruncate($fp, 0);
-        rewind($fp);
-        fwrite($fp, implode("\n", $lines) . "\n");
-        fflush($fp);
-        return $changed;
-    } finally {
-        flock($fp, LOCK_UN);
-        fclose($fp);
-    }
 }
 
 // ============================================================

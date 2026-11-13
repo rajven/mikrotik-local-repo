@@ -16,6 +16,8 @@ define('LOCAL_STABLE_FILE',   $V6['local_stable']);
 define('LOCAL_LONGTERM_FILE', $V6['local_longterm']);
 $FALLBACKS = $CFG['fallbacks'];
 
+require __DIR__ . '/mt_cache.php';
+
 /* ---------------- helpers ---------------- */
 function readLocalFallback(string $path): ?string
 {
@@ -24,78 +26,6 @@ function readLocalFallback(string $path): ?string
     if ($data === false) return null;
     $data = trim($data, "\r\n\t ");
     return $data === '' ? null : $data . "\n";
-}
-
-/**
- * Returns ['value' => "...\n", 'ts' => <unix>] or null when there is no
- * usable entry. The timestamp is what makes re-validation possible.
- */
-function readCacheEntry(string $key): ?array
-{
-    if (!is_file(CACHE_FILE) || !is_readable(CACHE_FILE)) return null;
-    $lines = @file(CACHE_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if ($lines === false) return null;
-    foreach ($lines as $line) {
-        $parts = explode('=', $line, 2);
-        if (count($parts) !== 2) continue;
-        if (trim($parts[0]) !== $key) continue;
-        $valueParts = explode('|', trim($parts[1]), 2);
-        if (count($valueParts) !== 2) continue;
-        $value = $valueParts[0];
-        if ($value === '') return null;
-        return ['value' => $value . "\n", 'ts' => (int) $valueParts[1]];
-    }
-    return null;
-}
-
-function writeCacheIfChanged(string $key, string $value): bool
-{
-    $dir = dirname(CACHE_FILE);
-    if (!is_dir($dir)) @mkdir($dir, 0755, true);
-    $value = trim($value, "\r\n\t ");
-    if ($value === '') return false;
-
-    $fp = @fopen(CACHE_FILE, 'c+');
-    if (!$fp) return false;
-    if (!flock($fp, LOCK_EX)) { fclose($fp); return false; }
-    try {
-        rewind($fp);
-        $content = stream_get_contents($fp);
-        $existing = [];
-        if ($content !== false && $content !== '') {
-            $existing = array_filter(explode("\n", $content), fn($l) => $l !== '');
-        }
-        $lines = []; $found = false; $currentValue = null;
-        foreach ($existing as $line) {
-            $parts = explode('=', $line, 2);
-            if (count($parts) === 2 && trim($parts[0]) === $key) {
-                $found = true;
-                $vp = explode('|', trim($parts[1]), 2);
-                if (count($vp) === 2) $currentValue = $vp[0];
-                $lines[] = $line;
-            } else {
-                $lines[] = $line;
-            }
-        }
-        // Refresh the timestamp even when the answer did not change, otherwise
-        // an unchanged release would be re-validated on every single request.
-        $changed = !$found || $currentValue !== $value;
-        $newLine = $key . '=' . $value . '|' . time();
-        if ($found) {
-            foreach ($lines as $i => $line) {
-                $parts = explode('=', $line, 2);
-                if (count($parts) === 2 && trim($parts[0]) === $key) { $lines[$i] = $newLine; break; }
-            }
-        } else {
-            $lines[] = $newLine;
-        }
-        ftruncate($fp, 0); rewind($fp);
-        fwrite($fp, implode("\n", $lines) . "\n");
-        fflush($fp);
-        return $changed;
-    } finally {
-        flock($fp, LOCK_UN); fclose($fp);
-    }
 }
 
 function resolveFallback(string $file, array $defaults): string
@@ -130,7 +60,7 @@ function serve(string $payload, string $cacheStatus): void
     exit;
 }
 
-/* ---------------- маршрутизация ---------------- */
+/* ---------------- routing ---------------- */
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $file = basename($path);
 
@@ -150,11 +80,11 @@ if (!preg_match('/^\d+(\.\d+)*$/', $version)) {
 
 $cacheKey = $file . '_' . $version;
 
-/* ---------- 1. Кэш ---------- */
+/* ---------- 1. Cache ---------- */
 /* $stale keeps an expired answer as the last resort: better than a generic
    fallback value when upstream is unreachable. */
 $stale = null;
-$entry = readCacheEntry($cacheKey);
+$entry = readCacheEntry(CACHE_FILE, $cacheKey);
 if ($entry !== null) {
     if (CACHE_REVALIDATE <= 0 || (time() - $entry['ts']) < CACHE_REVALIDATE) {
         serve($entry['value'], 'HIT');
@@ -189,10 +119,10 @@ $isValid = (
     && preg_match('/^\s*\d+(\.\d+)+\s+\d+/', $body) === 1
 );
 
-/* ---------- 3. Ответ ---------- */
+/* ---------- 3. Response ---------- */
 if ($isValid) {
     $payload = rtrim($body, "\r\n\t ") . "\n";
-    writeCacheIfChanged($cacheKey, $payload);
+    writeCacheIfChanged(CACHE_FILE, $cacheKey, $payload);
     serve($payload, 'MISS');
 }
 
