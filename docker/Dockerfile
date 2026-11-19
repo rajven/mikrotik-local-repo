@@ -11,6 +11,9 @@ FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# libldap-common owns /etc/ldap/ldap.conf but libldap2 (pulled in by
+# lighttpd-modules-ldap and php-ldap) only Recommends it, so --no-install-recommends
+# would drop it and the entrypoint could not write /etc/ldap/ldap.conf.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -18,6 +21,7 @@ RUN apt-get update \
       unzip \
       lighttpd \
       lighttpd-modules-ldap \
+      libldap-common \
       php-fpm \
       php-curl \
       php-ldap \
