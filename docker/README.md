@@ -42,7 +42,8 @@ curl "http://localhost/routeros/force_update.php?new_version=7.24.5&serial=TEST&
 
 Далее устройства направляются на хост-зеркало как и раньше — статическими
 DNS-записями `download.mikrotik.com` / `upgrade.mikrotik.com` → IP этого
-хоста (для NAT-сомнительных случаем есть `network_mode: "host"` в compose).
+хоста (для сценария «устройства и хост в одной LAN за NAT» в compose есть
+закомментированный `network_mode: "host"`).
 
 ## Что где живёт (bind-директория на хосте → `/data`)
 
@@ -92,7 +93,8 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
   `http(s)://SERVER_NAME` → **весь `SITE_URL` с его схемой** (т.е. устройство
   всегда идёт ровно туда, куда настроено, даже в `install_updater.rsc` с
   https-вариантом), одиночный `SERVER_NAME` → host[:port], а `SERVER_IP` в
-  `dns.rsc` → IPv4 из resolve (безуспешность — только warning, плейсхолдер
+  `dns.rsc` → IPv4 (fallback — IPv6) из resolve (безуспешность — только
+  warning, плейсхолдер
   остаётся; `ping` в образе нет, используется `getent`). Внутренний прогрев
   кэша контейнер всегда делает в себя: `http://localhost`.
 - При **первом** старте entrypoint генерирует `/data/config/config.sh` и
@@ -102,10 +104,13 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
 - Чтобы применить новый env к существующему тому:
   `docker compose exec mirror rm /data/config/config.sh` и `docker compose
   up -d` (или отредактировать вручную).
-- Пароль админки: `ADMIN_PASSWORD` задаётся один раз при создании
-  `.htpasswd`; без него генерируется случайный и печатается в лог контейнера.
-  Сменить: удалить `/data/config/.htpasswd` и перезапустить. Вместо файла
-  бэкендом может быть каталог LDAP — см. следующий раздел.
+- Пароль админки: логин — `ADMIN_USER` (по умолчанию `admin`), пароль —
+  `ADMIN_PASSWORD`; оба применяются один раз при создании `.htpasswd`.
+  Без `ADMIN_PASSWORD` генерируется случайный и печатается в лог
+  контейнера. Альтернатива — готовый htpasswd-хеш в `ADMIN_PASSWORD_HASH`
+  (например, вывод `openssl passwd -apr1 '...'`). Сменить: удалить
+  `/data/config/.htpasswd` и перезапустить. Вместо файла бэкендом может
+  быть каталог LDAP — см. следующий раздел.
 
 ## LDAP-авторизация админки (опционально)
 
@@ -291,16 +296,22 @@ docker compose exec -u www-data mirror /usr/local/bin/download_ros.sh 6.49.17
 docker compose exec mirror sh -c '. /usr/local/bin/config.sh; wget -qO- "http://localhost/routeros/ros-warmup.php?token=${WARMUP_TOKEN}"'
 # состояние
 docker compose exec mirror sh -c 'supervisorctl -s unix:///run/supervisor.sock status || true'
+# health контейнера (HEALTHCHECK из Dockerfile — GET /healthz)
+docker compose ps        # STATUS: healthy
 ```
 
 ## Ограничения контейнерной версии
 
-- **Пра на томе**: entrypoint отдаёт `/data/*` пользователю `www-data` только
+- **Права на томе**: entrypoint отдаёт `/data/*` пользователю `www-data` только
   для корневых каталогов (рекурсивный chown десятков гигабайт на старте —
   зло). При восстановлении из бэкапа на bind-монтировании после переноса:
   `docker compose exec mirror chown -R www-data:www-data /data`.
-- **Спецсимволы**: `WARMUP_TOKEN` попадает в `sed`-подстановку — используйте
-  буквы/цифры/`(  _ - )` без `|` и `&`.
+- **Спецсимволы**: `WARMUP_TOKEN` попадает в `sed`-подстановку при
+  генерации конфигов, поэтому entrypoint проверяет его на старте:
+  разрешены буквы, цифры, `_`, `-` — что-либо другое останавливает контейнер
+  с явной ошибкой (fail-closed). Плейсхолдеры из `.env.example`
+  (`change-me-to-a-random-secret`, `CHANGE_ME`) проверку проходят, но дают
+  WARNING — подставьте свой случайный токен (`pwgen 20 1`).
 - **Нет TLS**: устройства ходят по HTTP (и `mode=http` на ROS 7) — как и в
   базовом сценарии README. HTTPS — отдельный слой (reverse-proxy или
   `certbot` в контейнер позже).
