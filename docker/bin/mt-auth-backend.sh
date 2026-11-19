@@ -21,6 +21,19 @@
 #                          self-signed ldaps:// / STARTTLS; emitted as
 #                          auth.backend.ldap.ca-file (libldap also honours
 #                          the LDAPTLS_CACERT environment variable)
+#   MT_LDAP_REQUIRE_GROUP  restrict the admin UI to members of a group: the
+#                          value is a group DN, or several DNs joined with '|'.
+#                          Emitted as "require" => "group=<dn>|group=<dn>" and
+#                          checked by mod_authn_ldap natively: it searches
+#                          (member=<user DN>) with the group DN as the search
+#                          base. This works for groupOfNames/groupOfUniqueNames
+#                          entries whose member attribute lives on the GROUP
+#                          entry — such membership cannot be expressed as a
+#                          user-search filter at all.
+#   MT_LDAP_GROUP_MEMBER   membership attribute used with REQUIRE_GROUP;
+#                          default "member" (compared against the user DN).
+#                          Use "memberUid" for posixGroup entries (the
+#                          LDAP-escaped login is substituted then).
 #
 # A self-signed ldaps:// or starttls setup may additionally need the CA
 # certificate: set LDAPTLS_CACERT=/path/to/ca.pem in the environment
@@ -44,6 +57,18 @@ cfg_str() {
     printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
 }
 
+# auth.require rules are emitted here (not in lighttpd-mirror.conf) so the
+# "require" value can switch between valid-user and group=... membership
+# rules. The condition regex and realm are byte-identical to the conf's
+# $HTTP["url"] block, which keeps dir-listing/fastcgi only.
+emit_auth_require() {
+    printf '%s\n' '$HTTP["url"] =~ "^/mt-proxy($|/)" {'
+    printf '    auth.require = ( "" => ( "method" => "basic",\n'
+    printf '                             "realm"  => "mikrotik-local-repo admin",\n'
+    printf '                             "require" => %s ) )\n' "$(cfg_str "$1")"
+    printf '%s\n' '}'
+}
+
 # Anything outside printable ASCII (incl. newline, which grep cannot see
 # inside a single line) would corrupt the generated config — refuse it.
 check_printable() {
@@ -60,6 +85,7 @@ if [ "${MT_LDAP_AUTH:-0}" != "1" ]; then
 auth.backend                    = "htpasswd"
 auth.backend.htpasswd.userfile  = "/data/config/.htpasswd"
 EOF
+    emit_auth_require "valid-user"
     exit 0
 fi
 
@@ -115,3 +141,35 @@ fi
 if [ -n "${MT_LDAP_CA_CERT:-}" ]; then
     echo "auth.backend.ldap.ca-file = $(cfg_str "${MT_LDAP_CA_CERT}")"
 fi
+
+# --- auth.require rules: valid-user, or native group membership (0005) ------
+# mod_authn_ldap checks require group= itself: filter (groupmember=<value>)
+# with each group DN as the search base. "member" compares the user DN (the
+# DN found by the user search above); anything else is treated as memberUid
+# and receives the escaped login instead (mod_authn_ldap.c).
+if [ -n "${MT_LDAP_GROUP_MEMBER:-}" ] && [ -z "${MT_LDAP_REQUIRE_GROUP:-}" ]; then
+    fail "MT_LDAP_GROUP_MEMBER is set but MT_LDAP_REQUIRE_GROUP is empty (the membership attribute has no effect without group requirements)"
+fi
+
+require_val=""
+if [ -n "${MT_LDAP_REQUIRE_GROUP:-}" ]; then
+    check_printable "${MT_LDAP_REQUIRE_GROUP}" "MT_LDAP_REQUIRE_GROUP"
+    check_printable "${MT_LDAP_GROUP_MEMBER:-}" "MT_LDAP_GROUP_MEMBER"
+    rest="${MT_LDAP_REQUIRE_GROUP}"
+    while [ -n "$rest" ]; do
+        case "$rest" in
+            *"|"*) item="${rest%%|*}"; rest="${rest#*|}";;
+            *)     item="$rest"; rest="";;
+        esac
+        [ -n "$item" ] || fail "MT_LDAP_REQUIRE_GROUP contains an empty group DN (check the '|' separators)"
+        if [ -n "$require_val" ]; then
+            require_val="${require_val}|group=${item}"
+        else
+            require_val="group=${item}"
+        fi
+    done
+    echo "auth.backend.ldap.groupmember = $(cfg_str "${MT_LDAP_GROUP_MEMBER:-member}")"
+fi
+[ -n "$require_val" ] || require_val="valid-user"
+
+emit_auth_require "$require_val"

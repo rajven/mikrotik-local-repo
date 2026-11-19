@@ -124,15 +124,16 @@ MT_LDAP_FILTER=(&(sAMAccountName=?)(memberOf=CN=mikrotik-admins,OU=groups,DC=cor
 ```
 
 Как это работает: lighttpd в образе несёт `mod_authn_ldap` (пакет
-`lighttpd-modules-ldap`), а конфиг берёт auth-бэкенд из скрипта
-`bin/mt-auth-backend.sh` через `include_shell`. При `MT_LDAP_AUTH=1` скрипт
-печатает LDAP-блок (`auth.backend = "ldap"`, hostname/base-dn/bind-dn/
-bind-pw/filter), при 0 — прежний htpasswd; сами правила `auth.require` (только
-`/mt-proxy`, оба варианта пути) не меняются. Ошибки конфигурации
-(не задан `MT_LDAP_URL`/`MT_LDAP_BASE_DN`, схема не `ldap(s)://`, пароль без
-bind-dn, фильтр без `?`, непечатаемые символы в значениях) роняют
-`lighttpd -tt` на старте контейнера с явным сообщением — контейнер не
-стартует молча с бракованным конфигом.
+`lighttpd-modules-ldap`), а конфиг берёт auth-бэкенд и правила `auth.require`
+из скрипта `bin/mt-auth-backend.sh` через `include_shell`. При `MT_LDAP_AUTH=1`
+скрипт печатает LDAP-блок (`auth.backend = "ldap"`, hostname/base-dn/bind-dn/
+bind-pw/filter) и условный блок `$HTTP["url"]` с `auth.require` — `valid-user`
+либо `group=…`-правила (см. «Ограничение группой» ниже); при 0 — прежний
+htpasswd с тем же `valid-user`. Ошибки конфигурации (не задан
+`MT_LDAP_URL`/`MT_LDAP_BASE_DN`, схема не `ldap(s)://`, пароль без
+bind-dn, фильтр без `?`, непечатаемые символы в значениях, пустой DN в
+`REQUIRE_GROUP`) роняют `lighttpd -tt` на старте контейнера с явным
+сообщением — контейнер не стартует молча с бракованным конфигом.
 
 Семантика переменных:
 
@@ -147,6 +148,48 @@ bind-dn, фильтр без `?`, непечатаемые символы в з�
 | `MT_LDAP_STARTTLS` | `1` — `auth.backend.ldap.starttls = "enable"` для `ldap://` | `0` |
 | `MT_LDAP_CA_CERT` | путь к CA-сертификату **внутри контейнера** для самоподписанного ldaps/STARTTLS (файл монтируется, например, в `/data/config/ldap-ca.pem`); уходит и в `auth.backend.ldap.ca-file` (lighttpd), и в `TLS_CACERT` `/etc/ldap/ldap.conf` (libldap/php-ldap) | пусто |
 | `MT_LDAP_TLS_REQCERT` | проверка серверного сертификата каталога в `/etc/ldap/ldap.conf`: `never`/`allow`/`try`/`demand`/`hard`; `never` — типовой вариант для контроллера домена с самоподписанным сертом | пусто (дефолт libldap — `demand`) |
+| `MT_LDAP_REQUIRE_GROUP` | ограничить админку членством в группе: DN группы, несколько — через `\|` (`dn1\|dn2`); светится как `require => "group=…"` и проверяется нативно mod_authn_ldap | пусто (`valid-user`) |
+| `MT_LDAP_GROUP_MEMBER` | атрибут членства для проверки групп: `member` — сравнение с DN пользователя (groupOfNames/groupOfUniqueNames), `memberUid` — с логином (posixGroup) | `member` |
+
+### Ограничение группой
+
+Есть два механизма, и выбор зависит от того, **где каталог хранит
+членство**:
+
+1. **Атрибут на записи пользователя** (AD `memberOf`, FreeIPA, OpenLDAP с
+   включённым memberof-оверлеем) — тогда группа кладётся в поисковый
+   фильтр: `MT_LDAP_FILTER=(&(sAMAccountName=?)(memberOf=CN=mikrotik-admins,OU=groups,DC=corp,DC=example,DC=com))`.
+2. **Атрибут на записи группы** (groupOfNames/groupOfUniqueNames с
+   `member: <DN пользователя>`, posixGroup с `memberUid: <логин>`) — такой
+   поиск **невозможно** выразить фильтром по пользователю; используется
+   нативная проверка mod_authn_ldap:
+   `MT_LDAP_REQUIRE_GROUP=cn=core_admin,ou=Groups,dc=example,dc=org`.
+   На проводе lighttpd после успешной аутентификации пользователя ищет
+   `(member=<DN пользователя>)` с базой ровно на DN группы (для
+   `MT_LDAP_GROUP_MEMBER=memberUid` — `(memberUid=<логин>)`); попадание
+   поиска решает доступ. Несколько групп: `dn1|dn2` — достаточно попадания
+   в любую.
+
+Проверить свой каталог перед настройкой можно ldapsearch-ем сервисной
+учёткой:
+
+```sh
+# что хранится у пользователя (есть ли memberOf/group?)
+ldapsearch -x -H ldap://ldap.example.org:389 \
+  -D 'cn=wiki,ou=SpecialUsers,dc=example,dc=org' -w 'password' \
+  -b 'OU=Users,DC=example,DC=org' '(cn=roman)' dn memberOf group
+# что хранится в записи группы (member или memberUid?)
+ldapsearch -x -H ldap://ldap.example.org:389 \
+  -D 'cn=wiki,ou=SpecialUsers,dc=example,dc=org' -w 'password' \
+  -b 'cn=core_admin,ou=Groups,dc=example,dc=org' '(objectClass=*)' member memberUid
+```
+
+Если у пользователя атрибута нет, а в группе лежит `member:` — это вариант 2
+(`MT_LDAP_REQUIRE_GROUP`); если в группе `memberUid:` — вариант 2 с
+`MT_LDAP_GROUP_MEMBER=memberUid`; если у пользователя есть `memberOf:` —
+вариант 1 (фильтр). Иммутабельная проверка: попытка не-члена группы даёт
+«password doesn't match» в логах lighttpd — то же сообщение, что и при
+неверном пароле; разделять их удобно по wire-логу каталога.
 
 ### `/etc/ldap/ldap.conf` (libldap)
 

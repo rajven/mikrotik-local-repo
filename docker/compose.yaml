@@ -37,6 +37,12 @@ services:
       # make mt-auth-backend.sh fail the config check and kill lighttpd.
       MT_LDAP_FILTER: ${MT_LDAP_FILTER:-}
       MT_LDAP_STARTTLS: ${MT_LDAP_STARTTLS:-0}
+      # Native group restriction (0005): group DN (or DNs joined with '|').
+      # Membership is checked by mod_authn_ldap itself — (member=<user DN>)
+      # searched with the group DN as the base; set MT_LDAP_GROUP_MEMBER=
+      # "memberUid" for posixGroup entries. Leave unset for valid-user.
+      MT_LDAP_REQUIRE_GROUP: ${MT_LDAP_REQUIRE_GROUP:-}
+      MT_LDAP_GROUP_MEMBER: ${MT_LDAP_GROUP_MEMBER:-}
       # CA certificate (path inside the container, e.g. /data/config/ldap-ca.pem
       # from the data volume) and TLS_REQCERT for /etc/ldap/ldap.conf — these two
       # are consumed by the entrypoint, not by mt-auth-backend.sh.
