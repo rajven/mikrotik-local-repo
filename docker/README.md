@@ -145,7 +145,36 @@ bind-dn, фильтр без `?`, непечатаемые символы в з�
 | `MT_LDAP_BIND_PASSWORD` | пароль сервисной учётки (только с `BIND_DN`) | пусто |
 | `MT_LDAP_FILTER` | фильтр поиска, `?` = логин (lighttpd экранирует LDAP-спецсимволы); AD: `(&(sAMAccountName=?)(memberOf=CN=…))`, OpenLDAP: `(uid=?)` | `(uid=?)` |
 | `MT_LDAP_STARTTLS` | `1` — `auth.backend.ldap.starttls = "enable"` для `ldap://` | `0` |
-| `MT_LDAP_CA_CERT` | путь к CA-сертификату **внутри контейнера** для самоподписанного ldaps/STARTTLS (файл монтируется, например, в `/data/config/ldap-ca.pem`); уходит в `auth.backend.ldap.ca-file` | пусто |
+| `MT_LDAP_CA_CERT` | путь к CA-сертификату **внутри контейнера** для самоподписанного ldaps/STARTTLS (файл монтируется, например, в `/data/config/ldap-ca.pem`); уходит и в `auth.backend.ldap.ca-file` (lighttpd), и в `TLS_CACERT` `/etc/ldap/ldap.conf` (libldap/php-ldap) | пусто |
+| `MT_LDAP_TLS_REQCERT` | проверка серверного сертификата каталога в `/etc/ldap/ldap.conf`: `never`/`allow`/`try`/`demand`/`hard`; `never` — типовой вариант для контроллера домена с самоподписанным сертом | пусто (дефолт libldap — `demand`) |
+
+### `/etc/ldap/ldap.conf` (libldap)
+
+TLS-поведение каталога на стороне libldap управляется системным
+`/etc/ldap/ldap.conf`: у `mod_authn_ldap` нет своей директивы для
+`TLS_REQCERT`, а `php-ldap` читает тот же файл. Entrypoint управляет им на
+**каждом** старте:
+
+- `/data/config/ldap.conf` существует → ставится как `/etc/ldap/ldap.conf`
+  как есть (полный ручной контроль: `TLS_REQCERT`, `TLS_CACERT`, `BASE`,
+  `URI`, …; файл на томе — переживает рестарты и обновления образа);
+- иначе генерируется из env: `MT_LDAP_TLS_REQCERT` → строка `TLS_REQCERT`,
+  `MT_LDAP_CA_CERT` → строка `TLS_CACERT` (остальное — закомментированные
+  дефолты Debian). Заголовок файла напоминает, как его перехватить вручную.
+
+Типовой сценарий — контроллер домена с самоподписанным сертификатом, когда
+свой CA некуда положить:
+
+```
+MT_LDAP_TLS_REQCERT=never
+```
+
+Штатные значения: `never` (без проверки), `allow` (проверять, но при ошибке
+продолжить), `try`/`demand`/`hard` (проверять; отличаются поведением без
+сертификата сервера). `never` отключает защиту от MITM на пути к каталогу —
+entrypoint печатает об этом WARNING в лог; для продакшена предпочтительнее
+`MT_LDAP_CA_CERT` со своим CA и дефолтная проверка. Недопустимое значение
+`MT_LDAP_TLS_REQCERT` останавливает старт контейнера с явной ошибкой.
 
 Смена бэкенда применяется на рестарте контейнера: `docker compose up -d`
 после правки `.env`. Пароль сервисной учётки передаётся через env
@@ -164,7 +193,10 @@ bind-dn, фильтр без `?`, непечатаемые символы в з�
 из группы; в логе контейнера при старте появится строка
 `Admin UI auth backend: LDAP (...)`. Если каталог недоступен — lighttpd
 вернёт 401 на Basic Auth (fail-closed), а в логе будет ошибка ldap;
-проверьте досягаемость `MT_LDAP_URL` из контейнера и CA-сертификат.
+проверьте досягаемость `MT_LDAP_URL` из контейнера и CA-сертификат. При
+ошибках TLS-хендшейка (самоподписанный серт контроллера) в логе будет
+`TLS: certificate verify failed` — либо задайте `MT_LDAP_CA_CERT`, либо,
+если CA недоступен, `MT_LDAP_TLS_REQCERT=never`.
 
 ## Отличия/дополнения к bare-metal установке
 
