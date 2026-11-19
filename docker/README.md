@@ -215,6 +215,15 @@ entrypoint печатает об этом WARNING в лог; для продак
   первый прогон через `SYNC_START_DELAY` секунд).
 - Логи скриптов (`logger`) перекладываются в stdout контейнера
   (`busybox syslogd -O /dev/stdout`), PHP — тоже в stderr/stdout.
+  Логи самого lighttpd (errorlog и accesslog) идут через тот же syslog
+  (`server.errorlog-use-syslog` / `accesslog.use-syslog`), поэтому в
+  `docker logs` они с syslog-префиксом `<29>Nov 19 … lighttpd[…]: …`.
+  Это осознанно: lighttpd открывает лог-файлы уже ПОСЛЕ сброса привилегий
+  до `www-data`, а повторное открытие `/dev/stderr` (файл, который держит
+  supervisord) без прав роняло сервер в рестарт-цикл
+  (`opening errorlog '/dev/stderr' failed: Permission denied`). Сокет
+  `/dev/log` открывается один раз и переживает сброс; доступ `/healthz`
+  в accesslog по-прежнему не пишется.
 - Синхронизация защищена общим локом (`SYNC_LOCK_FILE`): накладывающиеся
   прогоны cron'а, контейнерного цикла и ручного `download_ros.sh` не
   дерутся за маркеры и распаковку. Повторный прогон, пока идёт первый,
