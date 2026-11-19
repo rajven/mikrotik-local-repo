@@ -33,13 +33,8 @@ services:
       MT_LDAP_BIND_DN: ${MT_LDAP_BIND_DN:-}
       MT_LDAP_BIND_PASSWORD: ${MT_LDAP_BIND_PASSWORD:-}
       MT_LDAP_BASE_DN: ${MT_LDAP_BASE_DN:-}
-      # NOTE: '?' is the login placeholder lighttpd 1.4.79 substitutes (not %u).
-      MT_LDAP_FILTER: ${MT_LDAP_FILTER:-(uid=?)}
+      MT_LDAP_FILTER: ${MT_LDAP_FILTER:-(uid=%u)}
       MT_LDAP_STARTTLS: ${MT_LDAP_STARTTLS:-0}
-      MT_LDAP_CA_CERT: ${MT_LDAP_CA_CERT:-}
-      # TLS_REQCERT for /etc/ldap/ldap.conf (libldap): never|allow|try|demand|hard.
-      # 'never' disables server certificate verification (self-signed DC certs).
-      MT_LDAP_TLS_REQCERT: ${MT_LDAP_TLS_REQCERT:-}
       SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-3}
       SYNC_START_DELAY: ${SYNC_START_DELAY:-90}
     volumes:
