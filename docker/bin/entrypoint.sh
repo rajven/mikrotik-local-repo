@@ -198,11 +198,13 @@ fi
 chown root:www-data "${DATA}/config"
 chmod 750 "${DATA}/config"
 
-# ---------------------------------------------------------------- nginx bits
-install -m 644 /opt/docker/conf/nginx-mirror.conf /etc/nginx/conf.d/mirror.conf
-install -m 644 /opt/docker/conf/mt-fastcgi.conf   /etc/nginx/snippets/mt-fastcgi.conf
-rm -f /etc/nginx/sites-enabled/default
+if [ "${MT_LDAP_AUTH:-0}" = "1" ]; then
+    echo "Admin UI auth backend: LDAP (${MT_LDAP_URL:-}); htpasswd at ${HTPASSWD} kept as fallback."
+fi
 
-nginx -t
+# ------------------------------------------------------------ lighttpd bits
+install -m 644 /opt/docker/conf/lighttpd-mirror.conf /etc/lighttpd/lighttpd.conf
+
+lighttpd -tt -f /etc/lighttpd/lighttpd.conf
 
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf

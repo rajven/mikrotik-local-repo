@@ -24,6 +24,17 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      # --- LDAP auth for the admin UI (optional): MT_LDAP_AUTH=1 switches the
+      # Basic Auth backend from /data/config/.htpasswd to the directory.
+      # Required with MT_LDAP_AUTH=1: MT_LDAP_URL, MT_LDAP_BASE_DN.
+      # See the "LDAP-авторизация" section of docker/README.md.
+      MT_LDAP_AUTH: ${MT_LDAP_AUTH:-0}
+      MT_LDAP_URL: ${MT_LDAP_URL:-}
+      MT_LDAP_BIND_DN: ${MT_LDAP_BIND_DN:-}
+      MT_LDAP_BIND_PASSWORD: ${MT_LDAP_BIND_PASSWORD:-}
+      MT_LDAP_BASE_DN: ${MT_LDAP_BASE_DN:-}
+      MT_LDAP_FILTER: ${MT_LDAP_FILTER:-(uid=%u)}
+      MT_LDAP_STARTTLS: ${MT_LDAP_STARTTLS:-0}
       SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-3}
       SYNC_START_DELAY: ${SYNC_START_DELAY:-90}
     volumes:

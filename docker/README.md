@@ -1,6 +1,6 @@
 # mikrotik-local-repo в Docker
 
-All-in-one-контейнер: nginx (эндпоинты устройств + веб-админка), PHP-FPM,
+All-in-one-контейнер: lighttpd (эндпоинты устройств + веб-админка), PHP-FPM,
 bash-скрипты синхронизации, syslog-в-stdout и цикл синхронизации вместо cron.
 Код живёт в образе, всё состояние — в томе `/data`.
 
@@ -12,9 +12,9 @@ docker/
 ├── README.md               ← этот файл
 ├── bin/entrypoint.sh       генерация конфигов, сиды, симлинки, запуск
 ├── bin/sync-loop.sh        периодический sync_mikrotik_repo.sh
+├── bin/mt-auth-backend.sh  выбор auth-бэкенда lighttpd: htpasswd / LDAP
 └── conf/
-    ├── nginx-mirror.conf   vhost: NEWEST*/force_update/warmup/админка/защита
-    ├── mt-fastcgi.conf     fastcgi-сниппет для device-эндпоинтов
+    ├── lighttpd-mirror.conf  vhost: NEWEST*/force_update/warmup/админка/защита
     ├── php-fpm-container.conf
     └── supervisord.conf.in
 ```
@@ -104,7 +104,67 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
   up -d` (или отредактировать вручную).
 - Пароль админки: `ADMIN_PASSWORD` задаётся один раз при создании
   `.htpasswd`; без него генерируется случайный и печатается в лог контейнера.
-  Сменить: удалить `/data/config/.htpasswd` и перезапустить.
+  Сменить: удалить `/data/config/.htpasswd` и перезапустить. Вместо файла
+  бэкендом может быть каталог LDAP — см. следующий раздел.
+
+## LDAP-авторизация админки (опционально)
+
+Базовый режим — Basic Auth по файлу `/data/config/.htpasswd`. Если в сети
+есть каталог (Active Directory, OpenLDAP, FreeIPA), админку можно
+переключить на него переменными окружения — правка конфигов и пересборка
+образа не нужны, всё включается в `.env`:
+
+```
+MT_LDAP_AUTH=1
+MT_LDAP_URL=ldaps://dc01.corp.example.com:636
+MT_LDAP_BASE_DN=DC=corp,DC=example,DC=com
+MT_LDAP_BIND_DN=CN=svc-mikrotik,OU=service-accounts,DC=corp,DC=example,DC=com
+MT_LDAP_BIND_PASSWORD=svc-account-password
+MT_LDAP_FILTER=(&(sAMAccountName=?)(memberOf=CN=mikrotik-admins,OU=groups,DC=corp,DC=example,DC=com))
+```
+
+Как это работает: lighttpd в образе несёт `mod_authn_ldap` (пакет
+`lighttpd-modules-ldap`), а конфиг берёт auth-бэкенд из скрипта
+`bin/mt-auth-backend.sh` через `include_shell`. При `MT_LDAP_AUTH=1` скрипт
+печатает LDAP-блок (`auth.backend = "ldap"`, hostname/base-dn/bind-dn/
+bind-pw/filter), при 0 — прежний htpasswd; сами правила `auth.require` (только
+`/mt-proxy`, оба варианта пути) не меняются. Ошибки конфигурации
+(не задан `MT_LDAP_URL`/`MT_LDAP_BASE_DN`, схема не `ldap(s)://`, пароль без
+bind-dn, фильтр без `?`, непечатаемые символы в значениях) роняют
+`lighttpd -tt` на старте контейнера с явным сообщением — контейнер не
+стартует молча с бракованным конфигом.
+
+Семантика переменных:
+
+| Переменная | Смысл | По умолчанию |
+|---|---|---|
+| `MT_LDAP_AUTH` | `1` — LDAP-бэкенд, `0`/не задана — htpasswd | `0` |
+| `MT_LDAP_URL` | `ldap://host:389` или `ldaps://host:636` | — (обязательна при LDAP) |
+| `MT_LDAP_BASE_DN` | база поиска пользователей | — (обязательна при LDAP) |
+| `MT_LDAP_BIND_DN` | DN сервисной учётки для поиска; пусто — anonymous bind | пусто |
+| `MT_LDAP_BIND_PASSWORD` | пароль сервисной учётки (только с `BIND_DN`) | пусто |
+| `MT_LDAP_FILTER` | фильтр поиска, `?` = логин (lighttpd экранирует LDAP-спецсимволы); AD: `(&(sAMAccountName=?)(memberOf=CN=…))`, OpenLDAP: `(uid=?)` | `(uid=?)` |
+| `MT_LDAP_STARTTLS` | `1` — `auth.backend.ldap.starttls = "enable"` для `ldap://` | `0` |
+| `MT_LDAP_CA_CERT` | путь к CA-сертификату **внутри контейнера** для самоподписанного ldaps/STARTTLS (файл монтируется, например, в `/data/config/ldap-ca.pem`); уходит в `auth.backend.ldap.ca-file` | пусто |
+
+Смена бэкенда применяется на рестарте контейнера: `docker compose up -d`
+после правки `.env`. Пароль сервисной учётки передаётся через env
+(как и `ADMIN_PASSWORD`) — в лог он не печатается; файл `.htpasswd` при
+включённом LDAP продолжит создаваться и остаётся рабочим фолбэком, если
+переменные убрать. Пустой пароль при бинде lighttpd отвергает
+принудительно (`allow-empty-pw = "disable"`); группа-членство фильтром
+`memberOf` — штатный способ дать доступ только нужной группе; поиск идёт
+под сервисной учёткой, а не под логином пользователя. Недоступный каталог
+не даёт ни обхода авторизации, ни падения веб-сервера: lighttpd закрывает
+запрос (fail-closed; в логе `ldap_sasl_bind_s(): Can't contact LDAP server`).
+`php-ldap` в образе установлен на будущее (если авторизация LDAP
+понадобится и в коде панели), сейчас LDAP использует lighttpd.
+
+Проверка на живом каталоге: открыть `/mt-proxy/` и войти доменным логином
+из группы; в логе контейнера при старте появится строка
+`Admin UI auth backend: LDAP (...)`. Если каталог недоступен — lighttpd
+вернёт 401 на Basic Auth (fail-closed), а в логе будет ошибка ldap;
+проверьте досягаемость `MT_LDAP_URL` из контейнера и CA-сертификат.
 
 ## Отличия/дополнения к bare-metal установке
 
@@ -127,7 +187,7 @@ cp -a /srv/mikrotik-mirror /backup/mikrotik-mirror.$(date +%F)   # или rsync 
   прогоны cron'а, контейнерного цикла и ручного `download_ros.sh` не
   дерутся за маркеры и распаковку. Повторный прогон, пока идёт первый,
   завершается с сообщением `Another synchronisation is already running`.
-- Веб-сервер один (nginx+FPM), автоопределение FPM/mod_php не нужно.
+- Веб-сервер один (lighttpd+FPM), автоопределение FPM/mod_php не нужно.
 
 ## Полезные команды
 

@@ -241,7 +241,7 @@ curl  "http://localhost/routeros/force_update.php?new_version=7.24.5&serial=TEST
 
 ### Альтернатива: Docker
 
-В каталоге `docker/` лежит готовый all-in-one образ (nginx + PHP-FPM, цикл
+В каталоге `docker/` лежит готовый all-in-one образ (lighttpd + PHP-FPM, цикл
 синхронизации внутри — настройка веб-сервера и cron не нужны):
 
 ```

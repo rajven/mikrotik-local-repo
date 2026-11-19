@@ -28,8 +28,8 @@ stdout_logfile_maxbytes = 0
 stderr_logfile = /dev/stderr
 stderr_logfile_maxbytes = 0
 
-[program:nginx]
-command = /usr/sbin/nginx -g "daemon off;"
+[program:lighttpd]
+command = /usr/sbin/lighttpd -D -f /etc/lighttpd/lighttpd.conf
 priority = 20
 autorestart = true
 startsecs = 3

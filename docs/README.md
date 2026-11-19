@@ -241,7 +241,7 @@ The second request registers a device with serial `TEST` in the database. On a f
 
 ### Alternative: Docker
 
-The `docker/` directory ships a ready all-in-one image (nginx + PHP-FPM,
+The `docker/` directory ships a ready all-in-one image (lighttpd + PHP-FPM,
 sync loop included — no web-server or cron setup):
 
 ```

@@ -3,7 +3,7 @@
 # Build context = repository root:
 #   docker build -f docker/Dockerfile -t mikrotik-local-repo:docker .
 #
-# What is inside: nginx (device endpoints + admin UI), PHP-FPM, sync scripts,
+# What is inside: lighttpd (device endpoints + admin UI), PHP-FPM, sync scripts,
 # syslog-forward-to-stdout and the periodic sync loop. All state and config
 # live under /data (mount a volume there).
 
@@ -16,9 +16,11 @@ RUN apt-get update \
       ca-certificates \
       wget \
       unzip \
-      nginx \
+      lighttpd \
+      lighttpd-modules-ldap \
       php-fpm \
       php-curl \
+      php-ldap \
       php-sqlite3 \
       supervisor \
       busybox-static \
@@ -34,10 +36,11 @@ COPY addons/mikrotik/   /opt/app/mikrotik/
 COPY docker/bin/        /opt/docker/bin/
 COPY docker/conf/       /opt/docker/conf/
 
-# web root code + CLI scripts
+# web root code + CLI scripts + health endpoint
 RUN set -eux; \
     cp -a /opt/app/html/. /var/www/html/; \
-    rm -f /var/www/html/index.nginx-debian.html /var/www/html/routeros/.gitkeep; \
+    rm -f /var/www/html/routeros/.gitkeep; \
+    printf 'ok\n' > /var/www/html/healthz; \
     cp /opt/app/scripts/*.sh /usr/local/bin/; \
     chmod +x /usr/local/bin/sync_mikrotik_repo.sh /usr/local/bin/download_ros.sh; \
     rm -f /usr/local/bin/config.sh
@@ -45,6 +48,7 @@ RUN set -eux; \
 # One-line downstream patch: SQLite path from env, so mt_proxy.db (+ WAL
 # sidecars) live under /data/state instead of the ephemeral code layer.
 RUN chmod +x /opt/docker/bin/entrypoint.sh /opt/docker/bin/sync-loop.sh \
+            /opt/docker/bin/mt-auth-backend.sh \
  && perl -0pi -e 's{define\(\x27DB_PATH\x27,[^\n]*\);}{define("DB_PATH", getenv("MT_PROXY_DB_PATH") ?: __DIR__ . "/mt_proxy.db");}' \
     /var/www/html/mt-proxy/db.php \
  && grep -q 'MT_PROXY_DB_PATH' /var/www/html/mt-proxy/db.php
