@@ -7,16 +7,25 @@ logfile = /dev/null
 logfile_maxbytes = 0
 pidfile = /run/supervisord.pid
 childlogdir = /tmp
+; supervisor must stay root: lighttpd binds :80 and drops to www-data itself
+; (server.username). Declaring user=root also silences supervisor's
+; "running as root" CRIT — this is the intended mode, not an accident.
+user = root
 
 [unix_http_server]
 file = /run/supervisor.sock
 chmod = 0700
+; username/password are injected by the entrypoint on every start (random,
+; not baked into the image) to silence the "running without any HTTP
+; authentication checking" CRIT; supervisorctl reads the same rendered
+; file, so its commands keep working unchanged.
 
 [rpcinterface:supervisor]
 supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 
 [supervisorctl]
 serverurl = unix:///run/supervisor.sock
+; credentials here are kept in sync with [unix_http_server] by the entrypoint
 
 [program:php-fpm]
 command = @PHP_FPM_BIN@ -F

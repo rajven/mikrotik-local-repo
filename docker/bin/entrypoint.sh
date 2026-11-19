@@ -252,4 +252,19 @@ install -m 644 /opt/docker/conf/lighttpd-mirror.conf /etc/lighttpd/lighttpd.conf
 
 lighttpd -tt -f /etc/lighttpd/lighttpd.conf
 
+# -------------------------------------------------------- supervisord bits
+# supervisord's XML-RPC (unix_http_server) starts without authentication and
+# logs a CRIT about it on every start. Inject random per-start credentials
+# into the rendered config instead of baking a secret into the image: the
+# socket is root-only (chmod = 0700), supervisorctl reads the same file, so
+# its commands keep working unchanged. Delete-then-add keeps this idempotent
+# across restarts of the same container (RW layer persists).
+SUP_CONF=/etc/supervisor/supervisord.conf
+SUP_PASS="$(openssl rand -hex 12)"
+for SUP_SECT in unix_http_server supervisorctl; do
+    sed -i "/^\[${SUP_SECT}\]/,/^\[rpcinterface/ { /^[[:space:]]*username[[:space:]]*=/d; /^[[:space:]]*password[[:space:]]*=/d; }" "${SUP_CONF}"
+    sed -i "/^\[${SUP_SECT}\]/a username = supervisor\\npassword = ${SUP_PASS}" "${SUP_CONF}"
+done
+echo "supervisord: random XML-RPC credentials generated for this start (supervisorctl reads the same config)."
+
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
